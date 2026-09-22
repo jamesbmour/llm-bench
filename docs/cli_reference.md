@@ -225,3 +225,8 @@ Redirects are disabled so credentials stay on the configured provider origin.
 
 <Note>
 A model that produces a wrong answer is reported as `completed` with a lower success rate — it does **not** produce exit code 1. Only transport failures, API errors, timeouts, and configuration problems change the exit code. Use `--fail-on-regression` to gate CI pipelines on performance degradation (exit code 3).
+</Note>
+
+---
+
+For the complete schema reference of persisted run documents, transcript files, and export formats, see [Data Formats & Exports](/data_formats).

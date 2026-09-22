@@ -131,4 +131,4 @@ Using `regression_pct`:
 
 ---
 
-For the complete schema reference of how these metrics are persisted in run documents, transcripts, and export formats, see [Data Formats & Exports](data_formats.md).
+For the complete schema reference of how these metrics are persisted in run documents, transcripts, and export formats, see [Data Formats & Exports](/data_formats).

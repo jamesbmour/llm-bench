@@ -135,7 +135,8 @@ subprocess uses:
 - **`start_new_session=True`**: New process group for clean `SIGKILL` termination via `killpg`.
 - **15-second timeout**: Enforced by `asyncio.timeout`; on expiry, the entire process group is killed.
 
-- For hostile-code protection, run `llmsweep` inside a containerized or virtualized host environment.
+For hostile-code protection, run `llmsweep` inside a containerized or virtualized host environment.
 
+---
 
-For the complete schema reference of how scenario results are persisted in transcripts and run documents, see [Data Formats & Exports](data_formats.md).
+For the complete schema reference of how scenario results are persisted in transcripts and run documents, see [Data Formats & Exports](/data_formats).

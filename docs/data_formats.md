@@ -344,4 +344,4 @@ All exports apply credential redaction. The `--sort-by` flag controls model orde
 
 ---
 
-For the full CLI command reference including flags, environment variables, and configuration precedence, see [CLI Reference & Configuration](cli_reference.md). For details on how metrics are calculated from this data, see [Metrics & Scoring Methodology](metrics_and_scoring.md).
+For the full CLI command reference including flags, environment variables, and configuration precedence, see [CLI Reference & Configuration](/cli_reference). For details on how metrics are calculated from this data, see [Metrics & Scoring Methodology](/metrics_and_scoring).
