@@ -342,6 +342,7 @@ class ResultsScreen(SweepScreen):
         Binding("slash", "filter", "Filter"),
         Binding("f", "status_filter", "Status filter"),
         Binding("enter", "transcript", "Transcript"),
+        Binding("i", "stats", "Statistics"),
         Binding("d", "diff", "Baseline diff"),
         Binding("c", "compare", "Compare"),
         Binding("m", "matrix", "Coverage matrix"),
@@ -492,6 +493,22 @@ class ResultsScreen(SweepScreen):
             lines.extend(model.warnings)
             if model.contended:
                 lines.append("Contended parallel measurement; no automatic performance verdict")
+            if self.run.statistics:
+                st = self.run.statistics
+                suite_st = st.get("suite_success", {})
+                interval = suite_st.get("interval")
+                int_str = (
+                    f"[{interval[0]:.1%}, {interval[1]:.1%}]"
+                    if interval
+                    else f"n/a ({suite_st.get('reason') or 'suppressed'})"
+                )
+                cov = st.get("coverage")
+                cov_str = f"{cov:.0%}" if cov is not None else "n/a"
+                lines.append(
+                    f"Confidence: {st.get('confidence_label', 'n/a')} · Suite 95% CI: {int_str} · "
+                    f"Tasks: {st.get('independent_tasks', 0)} independent · Coverage: {cov_str} "
+                    f"(Press 'i' for full reliability report)"
+                )
         self.query_one("#results-detail", Static).update(Text("\n".join(lines)))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -534,6 +551,9 @@ class ResultsScreen(SweepScreen):
     def action_compare(self) -> None:
         self.controller.show_comparison()
 
+
+    def action_stats(self) -> None:
+        self.controller.show_statistics()
 
     def action_matrix(self) -> None:
         self.controller.show_coverage()
@@ -1185,6 +1205,92 @@ class DiffScreen(ModalScreen[None]):
                     f"\n{row.get('reason') or ''}",
                 )
             )
+
+
+class StatisticsScreen(ModalScreen[None]):
+    """Present computed reliability report, confidence intervals, and denominators."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("i", "dismiss", "Close", show=False),
+    ]
+
+    def __init__(self, stats: dict[str, Any]) -> None:
+        super().__init__()
+        self.stats = stats
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield RichLog(wrap=True, markup=False)
+            yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(".dialog").border_title = "RELIABILITY & CONFIDENCE REPORT"
+        log = self.query_one(RichLog)
+        tone = cast("SweepApp", self.app).tone
+
+        label = self.stats.get("confidence_label", "fixed-repeat")
+        adaptive = self.stats.get("adaptive", False)
+        policy_desc = (
+            "Descriptive only (adaptive stopping policy; automatic regression verdicts disabled)"
+            if adaptive
+            else "Fixed-repeat policy (inferential confidence intervals)"
+        )
+        log.write(
+            Text.assemble(
+                ("Confidence Policy: ", "bold"),
+                (label.upper(), tone("warning") if adaptive else tone("success")),
+                f" — {policy_desc}\n",
+            )
+        )
+
+        suite = self.stats.get("suite_success", {})
+        interval = suite.get("interval")
+        if interval:
+            suite_str = f"[{interval[0]:.1%}, {interval[1]:.1%}]"
+            suite_style = tone("success")
+        else:
+            suite_str = f"Suppressed: {suite.get('reason', 'n/a')}"
+            suite_style = tone("warning")
+
+        log.write(
+            Text.assemble(
+                ("Suite Success Interval: ", "bold"),
+                (suite_str, suite_style),
+                f"\nMethod: {suite.get('method', 'task-cluster bootstrap')} "
+                f"({self.stats.get('independent_tasks', 0)} independent tasks)\n",
+            )
+        )
+
+        cov = self.stats.get("coverage")
+        cov_str = f"{cov:.1%}" if cov is not None else "n/a"
+        log.write(
+            Text.assemble(
+                ("Denominators & Coverage:\n", "bold"),
+                f"  Attempted: {self.stats.get('attempted', 0)} · "
+                f"Scored: {self.stats.get('scored', 0)} · "
+                f"Coverage: {cov_str}\n"
+                f"  Errors: {self.stats.get('errors', 0)} · "
+                f"Skipped: {self.stats.get('skips', 0)} · "
+                f"Cancellations: {self.stats.get('cancellations', 0)}\n",
+            )
+        )
+
+        tasks = self.stats.get("tasks", [])
+        if tasks:
+            log.write(Text("Task Repeat Reliability (Wilson 95% Interval):\n", style="bold"))
+            for t in tasks:
+                ci = t.get("repeat_reliability")
+                ci_str = f"[{ci[0]:.1%}, {ci[1]:.1%}]" if ci else "n/a"
+                dur = t.get("duration_mean_s")
+                dur_str = f"{dur:.2f}s" if dur is not None else "n/a"
+                log.write(
+                    f"  · {t['task_id']}: {t['successes']}/{t['scored']} passed "
+                    f"({t['repeats']} repeats) — 95% CI: {ci_str} · mean dur: {dur_str}\n"
+                )
+
+        if self.stats.get("method"):
+            log.write(Text(f"Methodology: {self.stats['method']}\n", style="italic"))
 
 
 class SetupScreen(Screen[None]):

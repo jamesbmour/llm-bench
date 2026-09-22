@@ -31,11 +31,9 @@
 ## 3. Reliability and Confidence Reporting
 
 **Goal:** Help users distinguish repeatable differences from small-sample noise.
+### Completed
 
-### Remaining
-
-- [ ] Expose computed statistics consistently in the TUI (plain output and stored `statistics` on runs are started).
-- [ ] Deterministic tests for adaptive stop-at-budget, paired bootstrap, and low-sample suppression edge cases.
-- [ ] Metrics/scoring documentation for confidence labels and adaptive-run regression policy.
-
+- [x] Expose computed statistics consistently in the TUI (plain output and stored `statistics` on runs are started).
+- [x] Deterministic tests for adaptive stop-at-budget, paired bootstrap, and low-sample suppression edge cases.
+- [x] Metrics/scoring documentation for confidence labels and adaptive-run regression policy.
 **Acceptance criteria:** Extra repeats cannot erase earlier failures; reports disclose denominators and confidence methods; renderers perform no statistical calculations.

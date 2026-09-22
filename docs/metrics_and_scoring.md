@@ -131,4 +131,49 @@ Using `regression_pct`:
 
 ---
 
+## 7. Reliability, Confidence Labels & Adaptive Run Policy
+
+`llmsweep` distinguishes repeatable benchmark differences from small-sample noise using explicit uncertainty modeling, task clustering, and strict stopping policies.
+
+### Wilson 95% Score Intervals for Task Outcomes
+For binary task outcomes across repeated attempts ($k$ successes out of $n$ completed trials), `llmsweep` computes the Wilson score interval at a 95% confidence level ($z \approx 1.96$):
+
+$$w = \frac{\hat{p} + \frac{z^2}{2n} \pm z \sqrt{\frac{\hat{p}(1-\hat{p})}{n} + \frac{z^2}{4n^2}}}{1 + \frac{z^2}{n}}$$
+
+where $\hat{p} = k/n$.
+- **Zero or Perfect Rates**: Unlike naive Wald normal approximations, Wilson score intervals provide asymmetric, bounded $[0, 1]$ intervals even when $k = 0$ or $k = n$, avoiding false claims of certainty on small sample sizes.
+- **Unrun/Unavailable Tasks**: If no trials were scored ($n = 0$), the interval yields `null` / `n/a` rather than zero.
+
+### Task-Cluster Bootstrapping & Independent Task Requirements
+A critical statistical hazard in LLM evaluation is treating multiple repeats of the same task as independent observations:
+- **Repeated attempts of one task are not independent tasks**: Repeated executions of the same prompt measure model stochasticity and sampling temperature variance, whereas generalization requires performance across diverse tasks.
+- **Task Clustering**: To compute suite-level success intervals, `llmsweep` groups samples by task into clusters. The bootstrap resamples whole task clusters with replacement (1,000 draws).
+- **Low-Sample Suppression (`MIN_SUITE_TASKS = 5`)**: When an evaluation contains fewer than 5 distinct tasks, suite-level confidence intervals are **suppressed** with an explicit reason (`fewer than 5 distinct tasks; repeated attempts are not tasks`). Extra repeats on 1 or 2 tasks will never synthesize suite-level confidence.
+- **Failure Retention**: Extra repeats cannot erase earlier failures. All historical attempts remain within their task cluster and contribute to the task mean.
+
+### Paired Task-Cluster Bootstrap for Model Comparisons
+When comparing a candidate model against a baseline across common tasks:
+- Matched task pairs are resampled simultaneously to preserve task-difficulty covariance.
+- The difference of task means ($\mu_{\text{candidate}} - \mu_{\text{baseline}}$) is bootstrapped over 1,000 draws.
+- If fewer than 5 matched tasks exist between models, the comparative difference interval is suppressed with an explicit notice.
+
+### Confidence Labels
+Run reports, plain outputs, and TUI dashboards disclose one of two mutually exclusive confidence labels:
+- **`fixed-repeat`**: Generated from pre-planned, fixed repeat counts. Confidence intervals are inferential and suitable for statistical comparison.
+- **`descriptive`**: Generated from exploratory, adaptively stopped benchmark runs. Intervals serve as descriptive summaries only and are **not** eligible for automated regression verdicts.
+
+### Adaptive-Run Regression Policy
+When running with `--repeat-mode exploratory`, `llmsweep` allows adaptive early stopping based on precision targets or resource budgets (time caps, token caps, maximum repeats).
+
+<Warning>
+**Adaptive Regression Policy**:
+Adaptively stopped runs **disable automatic regression verdicts**.
+- **Stopping-Time Bias**: Terminating data collection when a precision target or budget is met (optional stopping) inflates Type I error rates.
+- **Verdict Invalidation**: Any comparison involving an adaptively stopped run receives a verdict of `not comparable` with the explicit reason: `adaptive repeat policy disables automatic regression verdicts`.
+- **Quality-Only Disclosure**: Quality summaries and descriptive metrics remain viewable, but no pass/fail regression status is emitted.
+- **Explicit Denominators**: Every report and table discloses full sample denominators (`scored / attempted`), failure counts, error counts, skipped counts, and cancelled counts. Renderers perform no statistical computations.
+</Warning>
+
+---
+
 For the complete schema reference of how these metrics are persisted in run documents, transcripts, and export formats, see [Data Formats & Exports](/data_formats).

@@ -458,6 +458,38 @@ class SweepApp(App[int]):
 
         await self.push_screen_wait(CoverageScreen(runs))
 
+    @work(exit_on_error=False, exclusive=False, group="dialogs", description="Show statistics")
+    async def show_statistics(self) -> None:
+        run = self.saved_run or (self.session.run if self.session else None)
+        if run is None:
+            return
+        stats = run.statistics
+        if not stats:
+            import random
+
+            from llmsweep.statistics import reliability_report
+
+            samples = [
+                {
+                    "task_id": sample.task_id or sample.scenario,
+                    "scenario": sample.scenario,
+                    "status": sample.status,
+                    "success": sample.success,
+                    "total_s": sample.total_s,
+                }
+                for model in run.models
+                for sample in model.samples
+            ]
+            stats = reliability_report(
+                samples,
+                adaptive=bool((run.repeat_policy or {}).get("adaptive")),
+                rng=random.Random(run.run_id),
+            )
+            run.statistics = stats
+        from llmsweep.tui.screens.main import StatisticsScreen
+
+        await self.push_screen_wait(StatisticsScreen(stats))
+
     @work(exit_on_error=False, exclusive=False, group="dialogs", description="Export coverage")
     async def show_export_coverage(self, view: dict[str, Any]) -> None:
         directory = (
