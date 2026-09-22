@@ -198,6 +198,7 @@ class UsageEvent:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    reasoning_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,7 +261,7 @@ class ToolCallAccumulator:
         if delta.call_id:
             slot["id"] = delta.call_id
         if delta.name:
-            slot["name"] = delta.name
+            slot["name"] = str(slot["name"] or "") + delta.name
         if delta.arguments:
             slot["arguments"] = str(slot["arguments"]) + delta.arguments
 
@@ -306,6 +307,8 @@ class ChatStreamParser:
             yield from self._parse(packet)
 
     def _parse(self, packet: SsePacket) -> Iterator[StreamEvent]:
+        if self._done:
+            return
         if packet.is_done:
             self._done = True
             return
@@ -337,6 +340,7 @@ def _events_from_chunk(obj: dict[str, Any]) -> Iterator[StreamEvent]:
             prompt_tokens=_opt_int(usage.get("prompt_tokens"), "prompt_tokens"),
             completion_tokens=_opt_int(usage.get("completion_tokens"), "completion_tokens"),
             total_tokens=_opt_int(usage.get("total_tokens"), "total_tokens"),
+            reasoning_tokens=_reasoning_tokens(usage),
         )
 
     choices = obj.get("choices")
@@ -401,7 +405,7 @@ def _events_from_delta(delta: dict[str, Any]) -> Iterator[StreamEvent]:
 
 def _tool_call_delta(raw: dict[str, Any]) -> ToolCallDelta | None:
     index = raw.get("index", 0)
-    if not isinstance(index, int) or isinstance(index, bool):
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
         raise StreamProtocolError("tool call 'index' must be an integer")
     call_id = raw.get("id")
     if call_id is not None and not isinstance(call_id, str):
@@ -425,6 +429,13 @@ def _tool_call_delta(raw: dict[str, Any]) -> ToolCallDelta | None:
 def _opt_int(value: Any, field_name: str) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise StreamProtocolError(f"usage {field_name!r} must be an integer when present")
     return value
+
+
+def _reasoning_tokens(usage: dict[str, Any]) -> int | None:
+    details = usage.get("completion_tokens_details") or {}
+    if not isinstance(details, dict):
+        raise StreamProtocolError("completion_tokens_details must be an object")
+    return _opt_int(details.get("reasoning_tokens"), "reasoning_tokens")

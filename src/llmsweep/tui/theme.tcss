@@ -1,0 +1,38 @@
+Screen {
+    background: #0b1019;
+    color: #dce6f1;
+}
+Header { background: #121f30; }
+Footer { background: #121f30; }
+.page-title { height: 3; padding: 1 2; color: #7edbcc; text-style: bold; }
+PickerScreen { padding: 0 1; }
+#model-picker { height: 1fr; border: round #29445b; }
+#model-search, #model-selection { margin: 0 1; }
+#selection-summary { height: auto; min-height: 2; padding: 0 2; }
+#run-selected { margin: 0 2 1 2; }
+#run-clock { height: 1; padding: 0 2; }
+#run-progress { margin: 0 2; height: 1; }
+#live-scroll { height: 1fr; }
+#card-grid { layout: grid; grid-size: 2; grid-gutter: 1; height: auto; padding: 1; }
+.narrow #card-grid { grid-size: 1; }
+ModelCard { height: 27; border: round #29445b; background: #101b29; padding: 0 1; }
+.card-title { height: 2; padding: 1 0 0 0; color: #7edbcc; text-style: bold; }
+.card-status { height: 2; color: #aabbd0; }
+.stream-pane { height: 1fr; min-height: 5; background: #0b1019; }
+.speed-graph { height: 2; color: #7edbcc; }
+.tool-timeline { height: 6; }
+#verbose-log { height: 7; margin: 0 1; border: round #29445b; }
+#results-table { height: 1fr; margin: 1 2; border: round #29445b; }
+#results-description { height: 2; padding: 0 2; color: #aabbd0; }
+#results-detail { height: auto; max-height: 12; padding: 0 2 1 2; }
+ModalScreen { align: center middle; background: #000000 65%; }
+.dialog { width: 90%; height: 85%; padding: 1 2; border: thick #29445b; background: #101b29; }
+.dialog RichLog { height: 1fr; }
+#transcript-title { height: 2; text-style: bold; }
+.path-dialog { width: 80%; height: auto; padding: 1 2; border: thick #29445b; background: #101b29; }
+.path-dialog Static { height: 2; }
+.path-dialog Input { margin: 1 0; }
+HelpPanel { dock: right; width: 35; background: #101b29; border-left: solid #29445b; }
+.monochrome Screen, .monochrome Screen * { color: white; background: black; border: none; }
+
+.app-header { height: 1; padding: 0 2; background: #121f30; color: #aabbd0; }
