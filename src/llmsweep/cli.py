@@ -33,6 +33,7 @@ COMMANDS = (
     "resume",
     "rerun",
     "compare",
+    "coverage",
     "setup",
 )
 
@@ -52,7 +53,7 @@ def parser() -> argparse.ArgumentParser:
         prog="llmsweep", description="LM Studio benchmarks and saved-run viewer"
     )
     subcommands = root.add_subparsers(dest="command", required=True)
-    catalog = {"benchmarks", "profiles", "resume", "rerun", "compare"}
+    catalog = {"benchmarks", "profiles", "resume", "rerun", "compare", "coverage"}
     for name in COMMANDS:
         if name in catalog:
             continue
@@ -162,6 +163,12 @@ def _catalog_commands(subcommands: Any) -> None:
     compare.add_argument("--json", type=Path, help="Export comparison as JSON")
     compare.add_argument("--csv", type=Path, help="Export comparison as CSV")
     compare.add_argument("--markdown", type=Path, help="Export comparison as Markdown")
+    coverage = subcommands.add_parser("coverage")
+    coverage.add_argument("path", type=Path)
+    coverage.add_argument("--plain", action="store_true", default=None)
+    coverage.add_argument("--json", type=Path, help="Export coverage as JSON")
+    coverage.add_argument("--csv", type=Path, help="Export coverage as CSV")
+    coverage.add_argument("--markdown", type=Path, help="Export coverage as Markdown")
 
 def normalize_argv(argv: list[str]) -> list[str]:
     if argv and argv[0] in ("--help", "-h"):
@@ -343,6 +350,21 @@ def _local(args: argparse.Namespace, settings: Settings) -> int:
                 redact=Redactor(settings.api_key),
             )
         return 0
+    if args.command == "coverage":
+        from .coverage import build_coverage_matrix, coverage_to_markdown, export_coverage
+
+        run = load_run(args.path)
+        view = build_coverage_matrix([run])
+        print(coverage_to_markdown(view))
+        if any((args.json, args.csv, args.markdown)):
+            export_coverage(
+                view,
+                json_path=args.json,
+                csv_path=args.csv,
+                markdown_path=args.markdown,
+                redact=Redactor(settings.api_key),
+            )
+        return 0
     from .benchmarks.presets import plan_report
 
     print(plan_report(settings.values), end="")
@@ -420,6 +442,15 @@ def main(argv: list[str] | None = None) -> int:
                 current = load_run(args.paths[0])
                 baseline = load_run(args.paths[1])
                 app = SweepApp(settings, comparison_runs=[current, baseline])
+                code = app.run()
+                return code or 0
+            return _local(args, settings)
+        if args.command == "coverage":
+            run = load_run(args.path)
+            if interactive:
+                from .tui.app import SweepApp
+
+                app = SweepApp(settings, coverage_runs=[run])
                 code = app.run()
                 return code or 0
             return _local(args, settings)

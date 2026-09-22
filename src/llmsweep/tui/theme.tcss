@@ -99,6 +99,16 @@ ModelCard:focus { background: $surface-lighten-1; border-title-style: bold rever
 #compare-table { height: 12; min-height: 6; margin: 0 0 1 0; border: round $border; background: $surface; }
 #compare-detail { height: auto; max-height: 8; padding: 0 1; border-top: solid $border; color: $text-muted; }
 
+/* ── Coverage ───────────────────────────────────────────────────────────── */
+#coverage-filter-bar { height: 3; margin: 0 1; }
+#coverage-filter-bar Input { width: 1fr; margin: 0 1; }
+#coverage-toolbar { height: 3; margin: 0 2; }
+#coverage-toolbar Button { margin: 0 1 0 0; }
+#coverage-description { width: 1fr; height: 3; padding: 1 1 0 0; color: $text-muted; }
+#coverage-content { height: 1fr; margin: 0 2; }
+#coverage-table { height: 14; min-height: 8; margin: 0 0 1 0; border: round $border; background: $surface; }
+#coverage-detail { height: auto; max-height: 12; padding: 0 1; border-top: solid $border; color: $text-muted; }
+
 /* ── Tables ─────────────────────────────────────────────────────────────── */
 DataTable > .datatable--header { background: $panel; color: $text; text-style: bold; }
 DataTable > .datatable--cursor { background: $primary 30%; color: $text; }
@@ -136,11 +146,14 @@ ModalScreen { align: center middle; background: $background 70%; }
 .monochrome Screen, .monochrome Screen * { color: white; background: black; border: none; }
 .monochrome ModelCard, .monochrome .dialog, .monochrome .path-dialog, .monochrome Input,
 .monochrome #model-picker, .monochrome #results-table, .monochrome #verbose-log,
-.monochrome #compare-plot, .monochrome #compare-table {
+.monochrome #compare-plot, .monochrome #compare-table,
+.monochrome #coverage-filter-bar Input, .monochrome #coverage-table {
     border: round white;
     border-title-color: white;
 }
-.monochrome #results-detail, .monochrome #compare-detail { border-top: solid white; }
+.monochrome #results-detail, .monochrome #compare-detail, .monochrome #coverage-detail {
+    border-top: solid white;
+}
 .monochrome DataTable > .datatable--header { text-style: bold underline; }
 .monochrome DataTable > .datatable--cursor { background: white; color: black; }
 .monochrome Sparkline > .sparkline--max-color { color: white; }

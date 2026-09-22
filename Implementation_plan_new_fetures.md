@@ -17,14 +17,14 @@
 
 **Goal:** Show where each model performs well and which benchmarks still lack enough results to evaluate.
 
-### Remaining
+### Completed
 
-- [ ] Model-by-benchmark results matrix in the TUI, showing success rate, completed sample count, and coverage against the selected run's planned samples.
-- [ ] Filters for saved run, model, benchmark category, and configuration; keep incompatible task sets and configurations separate.
-- [ ] Keyboard-accessible cell details showing task-level scores, sample counts, and completed / failed / skipped / cancelled outcomes without requiring transcript inspection.
-- [ ] Distinct labels for unrun tasks, incomplete coverage, and unavailable scores; provide a plain table equivalent and avoid relying on color alone.
-- [ ] Export the displayed results matrix and coverage data through JSON, CSV, and Markdown using shared computed view data.
-- [ ] Offline fixture and Pilot tests for mixed outcomes, empty history, filtering, keyboard navigation, and small terminals.
+- [x] Model-by-benchmark results matrix in the TUI, showing success rate, completed sample count, and coverage against the selected run's planned samples.
+- [x] Filters for saved run, model, benchmark category, and configuration; keep incompatible task sets and configurations separate.
+- [x] Keyboard-accessible cell details showing task-level scores, sample counts, and completed / failed / skipped / cancelled outcomes without requiring transcript inspection.
+- [x] Distinct labels for unrun tasks, incomplete coverage, and unavailable scores; provide a plain table equivalent and avoid relying on color alone.
+- [x] Export the displayed results matrix and coverage data through JSON, CSV, and Markdown using shared computed view data.
+- [x] Offline fixture and Pilot tests for mixed outcomes, empty history, filtering, keyboard navigation, and small terminals.
 
 **Acceptance criteria:** Users can identify model strengths and coverage gaps from saved results without an inference server; missing results never appear as zero scores; denominators and outcome labels are explicit; matrix, details, and exports agree; calculations live outside renderers.
 

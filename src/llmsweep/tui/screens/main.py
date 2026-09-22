@@ -16,6 +16,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Input, ProgressBar, RichLog, Static
 
 from llmsweep.comparison import build_ascii_plot, build_views
+from llmsweep.coverage import build_coverage_matrix
 from llmsweep.errors import SelectionError
 from llmsweep.models import ModelInfo, ModelRef
 from llmsweep.plain import display, ordered_models
@@ -343,6 +344,7 @@ class ResultsScreen(SweepScreen):
         Binding("enter", "transcript", "Transcript"),
         Binding("d", "diff", "Baseline diff"),
         Binding("c", "compare", "Compare"),
+        Binding("m", "matrix", "Coverage matrix"),
         Binding("e", "export", "Export"),
         Binding("r", "rerun", "Rerun model"),
         Binding("escape", "focus_table", "", show=False),
@@ -532,6 +534,9 @@ class ResultsScreen(SweepScreen):
     def action_compare(self) -> None:
         self.controller.show_comparison()
 
+
+    def action_matrix(self) -> None:
+        self.controller.show_coverage()
     def action_export(self) -> None:
         self.controller.show_export()
     def action_rerun(self) -> None:
@@ -751,6 +756,267 @@ class ComparisonScreen(SweepScreen):
 
     def action_export(self) -> None:
         self.controller.show_export_comparison(self.view)
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+
+class CoverageScreen(SweepScreen):
+    """Model-by-benchmark results matrix and coverage gaps dashboard."""
+
+    AUTO_FOCUS = "#coverage-table"
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("t", "toggle_view", "Toggle view"),
+        Binding("e", "export", "Export"),
+        Binding("slash", "filter_model", "Filter"),
+        Binding("escape", "back", "Back"),
+    ]
+
+    def __init__(self, runs: list[RunResult], view_mode: str = "matrix") -> None:
+        super().__init__()
+        self.runs = runs
+        self.view_mode = view_mode
+        self.filter_run = ""
+        self.filter_model = ""
+        self.filter_category = ""
+        self.filter_config = ""
+        self.matrix_view: dict[str, Any] = {}
+
+    def compose(self) -> ComposeResult:
+        yield TitleBar("BENCHMARK COVERAGE & RESULTS")
+        with Horizontal(id="coverage-filter-bar"):
+            yield Input(placeholder="run id", id="coverage-filter-run")
+            yield Input(placeholder="model", id="coverage-filter-model")
+            yield Input(placeholder="category", id="coverage-filter-category")
+            yield Input(placeholder="config", id="coverage-filter-config")
+        with Horizontal(id="coverage-toolbar"):
+            yield Button("View: Matrix", id="coverage-toggle-button", variant="primary")
+            yield Button("Export", id="coverage-export-button")
+            yield Static("", id="coverage-description", markup=False)
+        with VerticalScroll(id="coverage-content"):
+            yield DataTable(id="coverage-table", cursor_type="row", zebra_stripes=True)
+            yield Static("", id="coverage-detail", markup=False)
+        yield StatusBar()
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#coverage-filter-run", Input).border_title = "Run"
+        self.query_one("#coverage-filter-model", Input).border_title = "Model  /"
+        self.query_one("#coverage-filter-category", Input).border_title = "Category"
+        self.query_one("#coverage-filter-config", Input).border_title = "Config"
+        self.refresh_views()
+
+    def refresh_views(self) -> None:
+        self.matrix_view = build_coverage_matrix(
+            self.runs,
+            run_id=self.filter_run or None,
+            model=self.filter_model or None,
+            category=self.filter_category or None,
+            configuration=self.filter_config or None,
+        )
+        models = self.matrix_view.get("models", [])
+        benchmarks = self.matrix_view.get("benchmarks", [])
+        cells = self.matrix_view.get("cells", {})
+        plain_rows = self.matrix_view.get("rows", [])
+        summary = self.matrix_view.get("summary", {})
+
+        toggle_btn = self.query_one("#coverage-toggle-button", Button)
+        toggle_btn.label = f"View: {'Matrix' if self.view_mode == 'matrix' else 'Table'}"
+
+        desc_text = (
+            f"{summary.get('total_models', 0)} model(s) · {summary.get('total_benchmarks', 0)} "
+            f"benchmark(s) · Coverage: {summary.get('overall_coverage', 0):.1%} "
+            f"({summary.get('complete_cells', 0)} complete, "
+            f"{summary.get('incomplete_cells', 0)} incomplete, "
+            f"{summary.get('unrun_cells', 0)} unrun, "
+            f"{summary.get('unavailable_cells', 0)} unavailable)"
+        )
+        self.query_one("#coverage-description", Static).update(Text(desc_text))
+
+        table = self.query_one("#coverage-table", DataTable)
+        previous_row = table.cursor_row
+        table.clear(columns=True)
+        tone = self.controller.tone
+
+        if self.view_mode == "matrix":
+            table.add_column("Model", key="model")
+            for bench in benchmarks:
+                cat = self.matrix_view.get("categories", {}).get(bench, "")
+                col_label = f"{bench}\n({cat})" if cat else bench
+                table.add_column(col_label, key=bench)
+            table.add_column("Coverage", key="coverage")
+
+            for m in models:
+                row_cells: list[Text] = [Text(m)]
+                model_completed = 0
+                model_planned = 0
+                for b in benchmarks:
+                    cell = cells.get(f"{m}::{b}", {})
+                    label = cell.get("label", "unrun")
+                    st = cell.get("status", "unrun")
+                    model_completed += cell.get("completed", 0)
+                    model_planned += cell.get("planned", 0)
+                    if st == "complete":
+                        rate = cell.get("success_rate")
+                        cell_tone = tone("success") if rate == 1.0 else tone("warning")
+                    elif st == "incomplete":
+                        cell_tone = tone("warning")
+                    elif st == "unavailable":
+                        cell_tone = tone("error")
+                    else:
+                        cell_tone = ""
+                    row_cells.append(Text(label, style=cell_tone))
+                cov_val = (model_completed / model_planned) if model_planned else 0.0
+                row_cells.append(Text(f"{cov_val:.0%} ({model_completed}/{model_planned})"))
+                table.add_row(*row_cells, key=m)
+        else:
+            table.add_columns(
+                "Model",
+                "Benchmark",
+                "Category",
+                "Status",
+                "Pass Rate",
+                "Completed/Planned",
+                "Coverage",
+            )
+            for r in plain_rows:
+                st = r["status"]
+                rate = r["success_rate"]
+                rate_str = f"{rate:.1%}" if rate is not None else "n/a"
+                if st == "complete":
+                    st_tone = tone("success") if rate == 1.0 else tone("warning")
+                elif st == "incomplete":
+                    st_tone = tone("warning")
+                elif st == "unavailable":
+                    st_tone = tone("error")
+                else:
+                    st_tone = ""
+                table.add_row(
+                    Text(r["model"]),
+                    Text(r["benchmark"]),
+                    Text(r["category"]),
+                    Text(f"[{st}]", style=st_tone),
+                    Text(rate_str),
+                    Text(f"{r['completed']}/{r['planned']}"),
+                    Text(f"{r['coverage']:.0%}"),
+                    key=f"{r['model']}::{r['benchmark']}",
+                )
+
+        total_rows = len(models) if self.view_mode == "matrix" else len(plain_rows)
+        if 0 <= previous_row < total_rows:
+            table.move_cursor(row=previous_row)
+
+        self.controller.update_status(
+            context=f"{len(models)} models",
+            view=f"{self.view_mode} view",
+            filter=f"{len(benchmarks)} benchmarks",
+            clock=None,
+            hint="t: toggle matrix/table  e: export  esc: back",
+        )
+        self.show_details()
+
+    def show_details(self) -> None:
+        table = self.query_one("#coverage-table", DataTable)
+        row = table.cursor_row
+        models = self.matrix_view.get("models", [])
+        benchmarks = self.matrix_view.get("benchmarks", [])
+        cells = self.matrix_view.get("cells", {})
+        plain_rows = self.matrix_view.get("rows", [])
+
+        if self.view_mode == "matrix":
+            if not (0 <= row < len(models)):
+                self.query_one("#coverage-detail", Static).update(Text(""))
+                return
+            m = models[row]
+            lines = [f"Model: {m}"]
+            for b in benchmarks:
+                cell = cells.get(f"{m}::{b}")
+                if not cell:
+                    continue
+                r_val = cell.get("success_rate")
+                rate_str = f"{r_val:.1%}" if r_val is not None else "n/a"
+                cov_str = f"{cell['coverage']:.0%}" if cell.get("coverage") is not None else "n/a"
+                lines.append(
+                    f" · {b} ({cell['category']}): [{cell['status']}] {cell['label']} "
+                    f"— Pass rate: {rate_str}, Coverage: {cov_str}, "
+                    f"Outcomes: {cell['completed']} completed, {cell['failures']} failed, "
+                    f"{cell['errors']} error, {cell['skipped']} skipped, "
+                    f"{cell['cancelled']} cancelled"
+                )
+                tasks = cell.get("tasks", [])
+                for t in tasks:
+                    tr = t.get("success_rate")
+                    t_rate = f"{tr:.0%}" if tr is not None else "n/a"
+                    mdur = t.get("mean_duration_s")
+                    dur_str = f"{mdur:.2f}s" if mdur is not None else "n/a"
+                    lines.append(
+                        f"     - {t['task_id']}: pass rate {t_rate} "
+                        f"({t['successes']}/{t['completed']} completed, "
+                        f"{t['failed']} failed, {t['errors']} errors), mean dur: {dur_str}"
+                    )
+            self.query_one("#coverage-detail", Static).update(Text("\n".join(lines)))
+        else:
+            if not (0 <= row < len(plain_rows)):
+                self.query_one("#coverage-detail", Static).update(Text(""))
+                return
+            r = plain_rows[row]
+            cell = cells.get(f"{r['model']}::{r['benchmark']}", {})
+            lines = [f"Model: {r['model']} · Benchmark: {r['benchmark']} ({r['category']})"]
+            r_val = r.get("success_rate")
+            rate_str = f"{r_val:.1%}" if r_val is not None else "n/a"
+            lines.append(
+                f"Status: [{r['status']}] · Pass rate: {rate_str} · "
+                f"Completed: {r['completed']}/{r['planned']} (Coverage: {r['coverage']:.0%})"
+            )
+            lines.append(
+                f"Outcomes: {r['completed']} completed, {r['failures']} failures, "
+                f"{r['errors']} errors, {r['skipped']} skipped, {r['cancelled']} cancelled"
+            )
+            tasks = cell.get("tasks", [])
+            if tasks:
+                lines.append("Tasks:")
+                for t in tasks:
+                    tr = t.get("success_rate")
+                    t_rate = f"{tr:.0%}" if tr is not None else "n/a"
+                    mdur = t.get("mean_duration_s")
+                    dur_str = f"{mdur:.2f}s" if mdur is not None else "n/a"
+                    lines.append(
+                        f"  - {t['task_id']}: pass rate {t_rate} "
+                        f"({t['successes']}/{t['completed']} completed, "
+                        f"{t['failed']} failed, {t['errors']} errors), mean dur: {dur_str}"
+                    )
+            self.query_one("#coverage-detail", Static).update(Text("\n".join(lines)))
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self.show_details()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "coverage-toggle-button":
+            self.action_toggle_view()
+        elif event.button.id == "coverage-export-button":
+            self.action_export()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        val = event.value.strip()
+        if event.input.id == "coverage-filter-run":
+            self.filter_run = val
+        elif event.input.id == "coverage-filter-model":
+            self.filter_model = val
+        elif event.input.id == "coverage-filter-category":
+            self.filter_category = val
+        elif event.input.id == "coverage-filter-config":
+            self.filter_config = val
+        self.refresh_views()
+
+    def action_toggle_view(self) -> None:
+        self.view_mode = "table" if self.view_mode == "matrix" else "matrix"
+        self.refresh_views()
+
+    def action_filter_model(self) -> None:
+        self.query_one("#coverage-filter-model", Input).focus()
+
+    def action_export(self) -> None:
+        self.controller.show_export_coverage(self.matrix_view)
 
     def action_back(self) -> None:
         self.app.pop_screen()

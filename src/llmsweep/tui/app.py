@@ -74,11 +74,13 @@ class SweepApp(App[int]):
         session: RunSession | None = None,
         saved_run: RunResult | None = None,
         comparison_runs: list[RunResult] | None = None,
+        coverage_runs: list[RunResult] | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings
         self.saved_run = saved_run
         self.comparison_runs = comparison_runs
+        self.coverage_runs = coverage_runs
         self.provider = provider or (session.provider if session else None)
         self.session = session
         self.redact = self.provider.redact if self.provider else Redactor(settings.api_key)
@@ -101,6 +103,10 @@ class SweepApp(App[int]):
             from llmsweep.tui.screens.main import ComparisonScreen
 
             self.push_screen(ComparisonScreen(self.comparison_runs))
+        elif self.coverage_runs:
+            from llmsweep.tui.screens.main import CoverageScreen
+
+            self.push_screen(CoverageScreen(self.coverage_runs))
         elif self.saved_run:
             self.push_screen(ResultsScreen(self.saved_run, self.settings.values["sort_by"]))
         else:
@@ -434,6 +440,45 @@ class SweepApp(App[int]):
         from llmsweep.comparison import export_comparison
 
         export_comparison(
+            view,
+            json_path=path if path.suffix == ".json" else None,
+            csv_path=path if path.suffix == ".csv" else None,
+            markdown_path=path if path.suffix in (".md", ".markdown") else None,
+            redact=self.redact,
+        )
+        self.notify(f"Exported {path}")
+
+    @work(exit_on_error=False, exclusive=False, group="dialogs", description="Show coverage matrix")
+    async def show_coverage(self) -> None:
+        run = self.saved_run or (self.session.run if self.session else None)
+        if run is None:
+            return
+        runs = [run]
+        from llmsweep.tui.screens.main import CoverageScreen
+
+        await self.push_screen_wait(CoverageScreen(runs))
+
+    @work(exit_on_error=False, exclusive=False, group="dialogs", description="Export coverage")
+    async def show_export_coverage(self, view: dict[str, Any]) -> None:
+        directory = (
+            self.session.store.directory(self.saved_run)
+            if (self.session and self.saved_run)
+            else Path.cwd()
+        )
+        value = await self.push_screen_wait(
+            PathDialog(
+                "Export coverage path (.json, .csv, or .md)", str(directory / "coverage.md")
+            )
+        )
+        if not value:
+            return
+        path = Path(value)
+        if path.suffix not in (".json", ".csv", ".md", ".markdown"):
+            self.notify("Use a .json, .csv, or .md extension", severity="error")
+            return
+        from llmsweep.coverage import export_coverage
+
+        export_coverage(
             view,
             json_path=path if path.suffix == ".json" else None,
             csv_path=path if path.suffix == ".csv" else None,
