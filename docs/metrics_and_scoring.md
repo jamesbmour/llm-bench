@@ -44,6 +44,8 @@ For any multi-turn scenario repeat, throughput is pooled across turns rather tha
 
 $$\text{Throughput}_{\text{sample}} = \frac{\sum_{i=1}^{N} \text{Output Tokens}_i}{\sum_{i=1}^{N} \text{Generation Time}_i}$$
 
+If any turn has zero or negative generation time, the sample's pooled throughput is `n/a`.
+
 ### Model-Level Throughput: Mean of Scenario Means
 Because different scenarios feature radically different prompt structures, turn counts, and completion lengths, simple token pooling across heterogeneous scenarios would bias metrics toward whichever scenario produced the highest token volume.
 
@@ -86,7 +88,7 @@ When `--repeat <n>` is set ($n > 1$), `llmsweep` computes statistical distributi
 - **Median**: 50th percentile sample value.
 - **Nearest-Rank p95**: 95th percentile computed using the nearest-rank method over sorted valid observations of length $K$:
   $$p95 = X_{\lceil 0.95 \times K \rceil - 1}$$
-  where $X$ is the zero-indexed sorted array (ascending) and indices are clamped to $[0, K-1]$. With a single sample ($K=1$), p95 is `null`.
+  where $X$ is the zero-indexed sorted array (ascending). With a single sample ($K=1$), p95 equals that value; with no valid observations, all statistics are `null`.
 
 ---
 
@@ -125,5 +127,8 @@ Using `regression_pct`:
 - Token sources differ (e.g., comparing `usage` against `estimated`).
 - The benchmark repeat counts or scenario configurations do not match.
 - Runs occurred under parallel execution contention.
+</Warning>
+
+---
 
 For the complete schema reference of how these metrics are persisted in run documents, transcripts, and export formats, see [Data Formats & Exports](data_formats.md).

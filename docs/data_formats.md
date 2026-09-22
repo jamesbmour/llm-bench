@@ -107,7 +107,8 @@ Each entry in the `models` array:
   "id": "qwen2.5-coder-7b-instruct",
   "tok_s": null,          // mean of scenario means; null if any scenario has no valid throughput
   "ttft_ms": 142.3,       // mean TTFT across completed samples
-  "token_source": "usage",// "estimated" if any turn used estimation; else the single source
+  "token_source": "estimated"
+                        // "estimated" if any turn used estimation; else the single source
   "token_sources": ["usage"],
   "output_tokens": 847,   // sum of output tokens across all turns
   "total_tokens": null,   // null if any turn lacks server-reported total_tokens
@@ -162,7 +163,7 @@ Each entry in a model's `samples` array:
   "transcript": "transcripts/lmstudio_qwen-..._weather_r1.json",
 
   // --- Derived fields (recomputed on load) ---
-  "tok_s": 85.3,          // pooled throughput: sum(output_tokens) / sum(generation_s)
+  "tok_s": 85.3,          // pooled throughput: sum(output_tokens) / sum(generation_s); n/a if any turn has zero generation time
   "ttft_ms": 142.3,       // mean TTFT across turns in this sample
   "output_tokens": 290,   // sum of output tokens across all turns
   "token_sources": ["usage"],
@@ -190,9 +191,9 @@ The derived `scenarios` object in each model result contains per-scenario statis
 ```json
 {
   "weather": {
-    "tok_s": {"count": 1, "mean": 85.3, "median": 85.3, "p95": null},
-    "ttft_ms": {"count": 1, "mean": 142.3, "median": 142.3, "p95": null},
-    "total_s": {"count": 1, "mean": 3.42, "median": 3.42, "p95": null},
+    "tok_s": {"count": 1, "mean": 85.3, "median": 85.3, "p95": 85.3},
+    "ttft_ms": {"count": 1, "mean": 142.3, "median": 142.3, "p95": 142.3},
+    "total_s": {"count": 1, "mean": 3.42, "median": 3.42, "p95": 3.42},
     "success_rate": 1.0,
     "token_sources": ["usage"],
     "complete": true
@@ -200,7 +201,7 @@ The derived `scenarios` object in each model result contains per-scenario statis
 }
 ```
 
-Each metric uses the `Stats` structure: `{count, mean, median, p95}`. The nearest-rank p95 is computed as $X_{\lceil 0.95 \times K \rceil - 1}$ (0-indexed) over sorted valid observations of length $K$. With a single sample ($K=1$), p95 is `null`.
+Each metric uses the `Stats` structure: `{count, mean, median, p95}`. The nearest-rank p95 is computed as $X_{\lceil 0.95 \times K \rceil - 1}$ (0-indexed) over sorted valid observations of length $K$. With a single sample ($K=1$), p95 equals that value; with no valid observations, all statistics are `null`.
 
 ### Comparisons
 
@@ -339,7 +340,8 @@ llmsweep export ~/.local/share/llmsweep/runs/<run-id> \
   --json report.json --csv report.csv --markdown report.md
 ```
 
-- All exports apply credential redaction. The `--sort-by` flag controls model ordering in CSV and Markdown output (`order`, `tok_s`, `ttft`, `total`, `load`, `model`).
+All exports apply credential redaction. The `--sort-by` flag controls model ordering in CSV and Markdown output (`order`, `tok_s`, `ttft`, `total`, `load`, `model`).
 
+---
 
 For the full CLI command reference including flags, environment variables, and configuration precedence, see [CLI Reference & Configuration](cli_reference.md). For details on how metrics are calculated from this data, see [Metrics & Scoring Methodology](metrics_and_scoring.md).
