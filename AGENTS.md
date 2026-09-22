@@ -19,12 +19,19 @@ Measurement contract (implemented, do not dilute):
 Strictly layered and acyclic. The core is pure, sync, and I/O-free; the provider is async and injects all I/O.
 
 ```
-errors ──► streams ──► metrics ──► providers/base (Lease, Provider Protocol)
-   │          ▲                          ▲
-   ├──► models ──► selection             │
-   ├──► security (Redactor) ─────────────┘
-   └──► providers/lmstudio (httpx, async)
+errors      (leaf)
+security    (leaf)
+
+models      ──► errors
+streams     ──► errors
+metrics     ──► errors, streams
+selection   ──► errors, models
+
+providers/base       ──► models, security, streams
+providers/lmstudio   ──► errors, models, security, streams, providers/base
 ```
+
+Nothing in the pure core imports `providers`. `__init__.py` imports nothing.
 
 Planned (not yet written), in dependency order:
 
@@ -84,7 +91,7 @@ Lifecycle rules, all implemented in `LMStudio`:
 | `tests/fakes/lmstudio.py` | `FakeLMStudio` + `httpx.MockTransport`; `completion()`, `calls()` script builders |
 | `tests/fixtures/{lmstudio,streams}/` | **Empty** — fixtures are built inline by `tests/fakes/lmstudio.py` instead |
 | `llmsweep/` | **Legacy reference script only** — NOT the package |
-| `docs/` | **Empty** — spec mandates design rationale here |
+| `docs/` | Design docs — `index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`; describe finished v1, treat as spec |
 | `.kilo/`, `.codegraph/`, `.ruff_cache/`, `.venv/` | Local tooling, gitignored |
 
 **Footgun:** `llmsweep/lmstudio_agent_bench.py` (1966 lines, `urllib`, `DEFAULT_HOST="localhost"`, `DEFAULT_PORT=1234`) is a repo-root directory that is *not* the `llmsweep` package and is *not* installed. It is excluded from ruff, mypy, and the sdist. Treat it as read-only integration guidance (it uses `/api/v1/models`, `/api/v0/models`, `/api/v1/models/load`, `/api/v1/models/unload`, `/v1/chat/completions`). Never import from it.
@@ -121,7 +128,11 @@ Per-milestone definition of done (from the spec): tests + `ruff check` + `mypy -
 
 **`src/llmsweep/cli.py` does not exist yet**, so the declared console script `llmsweep = "llmsweep.cli:main"` is currently unresolvable. Do not write code that assumes it exists.
 
-Spec-mandated deliverables still missing: `CHANGELOG.md`, `docs/` design rationale, an `export_screenshot()` image, macOS/Ubuntu CI for 3.11 + current stable.
+`CLAUDE.md` is a sibling agent-instruction file covering the same ground. It has drifted (it still says only milestone 1 exists and that `uv.lock` is committed). Where they disagree, trust this file and the code.
+
+Spec-mandated deliverables still missing: `CHANGELOG.md`, an `export_screenshot()` image, and macOS/Ubuntu CI for 3.11 + current stable. `docs/` is now populated (`index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`) — note these describe the *finished* v1, so treat them as spec, not current behavior. Several are uncommitted.
+
+Documentation cross-links in `docs/*.md` are `file:///Users/...` absolute links into this machine's Google Drive path. Prefer relative links in any doc you add.
 
 ## Code Conventions & Common Patterns
 
@@ -149,7 +160,18 @@ Never hand-roll `__eq__`, `__hash__`, or a mutable default. Use `field(default_f
 
 **Missing values** are uniformly `None` — never `NaN`, never a sentinel string. Aggregates return `None` rather than raising when inputs are absent, which is what surfaces as `n/a` in reports.
 
-**Async.** The core package is sync. Async belongs to the provider layer (httpx) and the TUI (`@work` workers); `asyncio_mode = "auto"` is already configured for it. Don't make the pure layer async.
+**Async.** The pure core stays sync. Async lives in `providers/` (httpx) and, later, the TUI (`@work`) — `asyncio_mode = "auto"` means async tests need no decorator. Never make `streams`/`models`/`metrics`/`selection` async.
+
+**Dependency injection over patching.** Every non-deterministic dependency is a constructor argument with a production default:
+
+```python
+LMStudio(base_url=..., api_key=..., timeout=..., *,
+         transport: httpx.AsyncBaseTransport | None = None,
+         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+         clock: Callable[[], float] = time.monotonic)
+```
+
+Tests pass `transport=fake.transport, sleep=no_wait` — never `monkeypatch` httpx, `time`, or `random`. Follow this shape for new I/O boundaries.
 
 **Byte-safe streaming.** Decoding goes through `codecs.getincrementaldecoder("utf-8")(errors="replace")` — chunk boundaries may fall mid-line, mid-CRLF, or mid-UTF-8 sequence. Never `bytes.decode()` a partial chunk. Tool-call arguments stay raw strings until the full call is assembled; parse only via `ToolCall.parsed_arguments()`.
 
@@ -162,6 +184,10 @@ Never hand-roll `__eq__`, `__hash__`, or a mutable default. Use `field(default_f
 | `src/llmsweep/metrics.py` | `TurnRecorder`, `TurnMetrics`, `summarize`, `pooled_throughput`, `regression_pct` |
 | `src/llmsweep/models.py` | `ModelRef`, `ModelInfo`, `normalize_model`, `parse_ref`, `sort_models` |
 | `src/llmsweep/selection.py` | `resolve_selection`, `resolve_scenarios`, `parse_index_spec`, `filter_models` |
+| `src/llmsweep/security.py` | `Redactor` — literal-secret replace plus a `Bearer <token>` regex |
+| `src/llmsweep/providers/base.py` | `Lease`, `Provider` Protocol — the runner's contract |
+| `src/llmsweep/providers/lmstudio.py` | `LMStudio` async adapter; `sse()` test-helper frame builder |
+| `tests/fakes/lmstudio.py` | Socket-free `FakeLMStudio`, script builders `completion()` / `calls()` |
 | `src/llmsweep/__init__.py` | `__version__` only |
 | `tests/conftest.py` | Autouse `no_network` socket guard |
 | `pyproject.toml` | Build, deps, and all tool config inline |
@@ -175,11 +201,11 @@ Never hand-roll `__eq__`, `__hash__`, or a mutable default. Use `field(default_f
 ## Runtime/Tooling Preferences
 
 - **Python ≥ 3.11** (`requires-python` and ruff `target-version = "py311"`); the local venv is CPython 3.12.11 with `uv` 0.8.24.
-- **`uv` is the package manager.** `uv.lock` exists on disk and is *not* gitignored (the `#uv.lock` line stays commented), but it is currently untracked — stage it before relying on it for reproducibility. Use `uv pip install -e ".[dev]"`.
+- **`uv` is the package manager.** `uv.lock` exists on disk and is *not* gitignored (the `#uv.lock` line stays commented), but it is currently untracked — stage it before relying on it for reproducibility. Use `uv sync --extra dev`.
 - **`.vscode/settings.json` sets `python-envs.defaultEnvManager` to conda** — this contradicts the uv-based setup. Ignore it and use uv.
 - **Hatchling** build backend; `[tool.hatch.build.targets.wheel] packages = ["src/llmsweep"]`.
 - **Ruff**: line length 100, `src = ["src", "tests"]`, rule families `E F W I UP B C4 SIM RUF ASYNC PTH TID`, `B008` ignored, `E501` waived for `tests/*`. `llmsweep/lmstudio_agent_bench.py` is excluded — do not lint or fix it.
-- **Deps**: `httpx`, `textual`, `rich`, `platformdirs`. Dev: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `textual-dev`, `respx`, `pytest-textual-snapshot`. `respx` and `pytest-textual-snapshot` are declared but unused so far — they are the intended tools for provider and TUI tests.
+- **Deps**: `httpx`, `textual`, `rich`, `platformdirs`. Dev: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `textual-dev`, `respx`, `pytest-textual-snapshot`. Provider tests currently use `httpx.MockTransport` rather than `respx`; `respx` and `pytest-textual-snapshot` remain unused until the TUI milestone.
 - **No `py.typed`** marker yet, despite the strict typing posture.
 
 Config precedence (CLI > environment > project TOML > user TOML): `LLMSWEEP_HOST`, `LLMSWEEP_API_KEY`, `LLMSWEEP_TIMEOUT`, `LLMSWEEP_DATA_DIR`; project `llmsweep.toml` or `pyproject.toml`; user `~/.config/llmsweep/config.toml`. Credentials are scoped to the configured origin, redirects disabled, secrets redacted before logging, exporting, or persisting.
@@ -190,18 +216,21 @@ Exit codes: `0` success, `1` model error, `2` configuration/setup error, `3` reg
 
 pytest, configured in `pyproject.toml`: `testpaths = ["tests"]`, `addopts = "-q --strict-markers"`, `asyncio_mode = "auto"`, `asyncio_default_fixture_loop_scope = "function"`, and **`filterwarnings = ["error"]`** — any warning fails the suite.
 
-**Tests must run fully offline.** `tests/conftest.py` provides an autouse `no_network` fixture that monkeypatches `socket.socket.connect`, `socket.socket.connect_ex`, and `socket.getaddrinfo` to raise `AssertionError("tests must not open network connections")`. HTTP must be exercised through socket-free fakes in `tests/fakes/`, not real sockets.
+**Tests must run fully offline.** `tests/conftest.py` provides an autouse `no_network` fixture that monkeypatches `socket.socket.connect`, `socket.socket.connect_ex`, and `socket.getaddrinfo` to raise `AssertionError("tests must not open network connections")`. Provider tests inject `httpx.MockTransport` (`tests/fakes/lmstudio.py`) instead — never a real socket.
 
-**Determinism through injection, not patching.** Clocks are passed as an explicit `now: float` argument (`TurnRecorder.observe(event, now)`), timestamps and run IDs are injected. Never `time.sleep`, never read the real clock in a test, never monkeypatch `time`.
+**Determinism through injection, not patching.** Clocks and sleeps are constructor arguments (`clock=`, `sleep=`), and `TurnRecorder.observe(event, now)` takes an explicit timestamp. Tests pass `sleep=no_wait` to skip backoff. Never `time.sleep`, never read the real clock in a test, never `monkeypatch` `time`/`random`/httpx.
 
-Current suite: 8 tests, all sync, no parametrization, no skips.
+Current suite: 13 collected tests across 4 files — 4 async test functions in `test_providers.py` (5 collected items via one `@pytest.mark.parametrize`), the rest sync. No skips.
 
 - `tests/test_streams.py` — SSE fragmentation (one byte at a time), split UTF-8, mixed reasoning/text/tool deltas, usage-only endings, NDJSON yields nothing, malformed payload raises.
 - `tests/test_selection.py` — index/range resolution, ambiguity, out-of-range, colon-containing IDs, metadata-not-name filtering, size sorting, scenario validation.
 - `tests/test_metrics.py` — generation-window-only timing, reasoning-inclusive TTFT, token estimation, pooled throughput, percentile statistics, regression math.
+- `tests/test_providers.py` — `test_provider_contract` parameterized over `["v1", "v0"]` drives the whole `Provider` protocol against `FakeLMStudio`; plus readiness polling vs. preexisting instances, retry-on-500 but never after a delta was emitted, and 401 never retrying.
 
-Conventions: plain `def test_*() -> None` functions (no classes), one behavior per test with a descriptive name, `pytest.raises(SelectionError, match=r"...")` for error paths, `pytest.approx` for floats, `is None` for missing values. Tests import the package under its installed name (`from llmsweep.streams import ...`). Module-level helpers are allowed for fixture construction (`packet(value)` builds one SSE frame as bytes).
+Conventions: plain `def test_*() -> None` / `async def test_*() -> None` functions (no classes), one behavior per test with a descriptive name, `pytest.raises(SelectionError, match=r"...")` for error paths, `pytest.approx` for floats, `is None` for missing values. Tests import the package under its installed name (`from llmsweep.streams import ...`) and fakes via `from tests.fakes.lmstudio import ...` (both `tests/` and `tests/fakes/` have `__init__.py`). Module-level helpers are allowed for fixture construction (`packet(value)` in `test_streams.py`, `sse(value)` in `providers/lmstudio.py`).
 
-**Testing gaps** — the spec mandates far more than exists today: provider v1/v0 contract tests parameterized over fixtures, readiness polling, secret redaction, scenario scoring (positive and negative cases, traversal, symlink escape, timeout), store schema migration, byte-identical persisted output from plain and TUI paths, and Textual pilot tests (widget state, worker isolation, cancellation cleanup, lossless resize, a synthetic 1000+ deltas/second stream). Every test must be deterministic and network-free.
+Fake scripting: `fake.scripts` is a list of per-request responses — a `list[bytes]` SSE script or an `int` HTTP status. `completion("text")` builds a split content stream plus finish and usage frames; `calls(("get_weather", {...}))` builds fragmented tool-call frames. `fake.load_pending` simulates a load that is not immediately ready; `fake.disconnect` and `fake.gate` simulate mid-stream failure and stalled chunks.
+
+**Testing gaps** — the spec mandates more than exists today: secret redaction assertions, scenario scoring (positive and negative cases, traversal, symlink escape, timeout), store schema migration, byte-identical persisted output from plain and TUI paths, and Textual pilot tests (widget state, worker isolation, cancellation cleanup, lossless resize, a synthetic 1000+ deltas/second stream). Every test must be deterministic and network-free.
 
 When adding a test, prefer asserting observable behavior over implementation detail, and skip tests that merely assert field copies, defaults, or forwarding.

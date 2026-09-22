@@ -22,7 +22,9 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.27",
-    "textual>=0.80",
+    "textual>=1.0",
+    "rich>=14.2",
+    "platformdirs>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +34,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "textual-dev>=1.5",
+    "respx>=0.22",
+    "pytest-textual-snapshot>=1.0",
 ]
 
 [project.scripts]
