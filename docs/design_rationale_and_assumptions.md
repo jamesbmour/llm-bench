@@ -1,3 +1,8 @@
+---
+title: "Design Rationale & Assumptions"
+description: "Architectural trade-offs, v1/v0 API discovery, process confinement, and lifecycle management"
+---
+
 # Design Rationale & Resolved Assumptions
 
 This document explains the architectural decisions, design trade-offs, and resolved assumptions underlying `llmsweep`.
@@ -8,7 +13,7 @@ This document explains the architectural decisions, design trade-offs, and resol
 
 ### LM Studio v1 with v0 Fallback
 - **Rationale**: LM Studio introduced a modernized v1 REST API (`/v1/models`, `/v1/chat/completions`) with richer capability discovery, structured instance tracking, and explicit load timing. However, older deployments or alternative configurations may only expose the v0 endpoints.
-- **Decision**: Discovery queries `/v1/models` first. If and only if the server returns HTTP 404 ([`UnsupportedEndpointError`](file:///Users/james/Library/CloudStorage/GoogleDrive-jamesbrendamour3@gmail.com/My%20Drive/GitHub/llm-bench/src/llmsweep/errors.py#L114)), the provider falls back to the v0 endpoint. Fallback is **not** triggered on connection errors, authentication failures, or 5xx server errors.
+- **Decision**: Discovery queries `/v1/models` first. If and only if the server returns HTTP 404 (`UnsupportedEndpointError`), the provider falls back to the v0 endpoint. Fallback is **not** triggered on connection errors, authentication failures, or 5xx server errors.
 - **Reporting Honesty**: In v0, models may be loaded just-in-time (JIT) by the server during request dispatch. Because v0 lacks instance tracking and explicit load readiness APIs, `load_s` is recorded as `null` with status `untracked/v0` rather than publishing guessed metrics.
 
 ### Lifecycle Management & Idempotent Cleanup

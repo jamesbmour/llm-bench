@@ -1,3 +1,8 @@
+---
+title: "Metrics & Scoring Methodology"
+description: "Formulas and methodology for TTFT, client-observed throughput, token accounting, and regression detection"
+---
+
 # Metrics & Scoring Methodology
 
 `llmsweep` prioritizes measurement accuracy and transparency. Benchmarking local LLMs requires accounting for stream chunking variability, token counting discrepancies, model warmups, and hardware latency.
@@ -12,7 +17,7 @@ Time-to-First-Token measures the elapsed time from dispatch until the local engi
 $$\text{TTFT (ms)} = (t_{\text{first\_output}} - t_{\text{dispatched}}) \times 1000$$
 
 - **Start Marker ($t_{\text{dispatched}}$)**: Captured the instant the HTTP request payload is sent across the socket.
-- **Stop Marker ($t_{\text{first\_output}}$)**: Captured upon receiving the first [`TextDelta`](file:///Users/james/Library/CloudStorage/GoogleDrive-jamesbrendamour3@gmail.com/My%20Drive/GitHub/llm-bench/src/llmsweep/streams.py#L37), [`ReasoningDelta`](file:///Users/james/Library/CloudStorage/GoogleDrive-jamesbrendamour3@gmail.com/My%20Drive/GitHub/llm-bench/src/llmsweep/streams.py#L33), or [`ToolCallDelta`](file:///Users/james/Library/CloudStorage/GoogleDrive-jamesbrendamour3@gmail.com/My%20Drive/GitHub/llm-bench/src/llmsweep/streams.py#L40).
+- **Stop Marker ($t_{\text{first\_output}}$)**: Captured upon receiving the first `TextDelta`, `ReasoningDelta`, or `ToolCallDelta`.
 - **Excluded Overhead**: Role-only headers (`{"role": "assistant"}`) and initial empty usage envelopes do **not** trigger the stop marker.
 
 ### Client-Observed Throughput
@@ -104,7 +109,7 @@ Before executing scenarios, `llmsweep` records cold and warm operational timings
 When `--baseline <path_to_run.json>` is passed, `llmsweep` matches runs on `(provider, model_id, scenario)` tuples and flags performance variances against baseline scenario means.
 
 ### Regression Formula
-Using [`regression_pct`](file:///Users/james/Library/CloudStorage/GoogleDrive-jamesbrendamour3@gmail.com/My%20Drive/GitHub/llm-bench/src/llmsweep/metrics.py#L116):
+Using `regression_pct`:
 
 - **Higher-is-Better (Throughput)**:
   $$\Delta_{\text{tok/s}} = \frac{\text{Baseline} - \text{Current}}{\text{Baseline}} \times 100$$
@@ -117,8 +122,9 @@ Using [`regression_pct`](file:///Users/james/Library/CloudStorage/GoogleDrive-ja
   - Marked with visual warning indicators (`▼ REGRESSION (+X.X%)`).
   - Command exits with code **`3`** (Regression Failure), enabling automated CI pipelines to detect performance degradation.
 
-### Comparison Invalidation Warnings
-Automatic performance comparison verdicts are suppressed (with diagnostic warnings) if:
+<Warning>
+**Comparison Invalidation**: Automatic performance comparison verdicts are suppressed (with diagnostic warnings) if:
 - Token sources differ (e.g., comparing `usage` against `estimated`).
 - The benchmark repeat counts or scenario configurations do not match.
 - Runs occurred under parallel execution contention.
+</Warning>

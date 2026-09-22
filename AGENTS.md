@@ -57,12 +57,18 @@ Data flow: `LMStudio.chat` streams HTTP bytes → `ChatStreamParser` yields norm
 ```python
 class Provider(Protocol):
     redact: Redactor
+
     async def list_models(self) -> list[ModelInfo]: ...
     async def acquire(self, model: ModelInfo, load_deadline: float) -> Lease: ...
     async def release(self, lease: Lease) -> None: ...
     async def close(self) -> None: ...
-    def chat(self, model: str, messages: list[dict[str, Any]],
-             tools: list[dict[str, Any]], max_tokens: int) -> AsyncIterator[StreamEvent]: ...
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+    ) -> AsyncIterator[StreamEvent]: ...
 ```
 
 `Lease` is the ownership record: `model`, `instance_id`, `we_loaded`, `load_s`, `note`, `released`, and a `chat_id` property (`instance_id or model.ref.id`). `we_loaded` is what gates the unload — `release()` is a no-op unless this run loaded the instance, and it is idempotent (`released` flag).
@@ -130,9 +136,23 @@ Per-milestone definition of done (from the spec): tests + `ruff check` + `mypy -
 
 `CLAUDE.md` is a sibling agent-instruction file covering the same ground. It has drifted (it still says only milestone 1 exists and that `uv.lock` is committed). Where they disagree, trust this file and the code.
 
-Spec-mandated deliverables still missing: `CHANGELOG.md`, an `export_screenshot()` image, and macOS/Ubuntu CI for 3.11 + current stable. `docs/` is now populated (`index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`) — note these describe the *finished* v1, so treat them as spec, not current behavior. Several are uncommitted.
+Spec-mandated deliverables still missing: `CHANGELOG.md`, an `export_screenshot()` image, and macOS/Ubuntu CI for 3.11 + current stable. `docs/` is now populated (`index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`) — note these describe the *finished* v1, so treat them as spec, not current behavior.
 
-Documentation cross-links in `docs/*.md` are `file:///Users/...` absolute links into this machine's Google Drive path. Prefer relative links in any doc you add.
+## Documentation Platform (Docs7)
+
+Documentation is managed via **Docs7** (`@upstash/docs7`) with site configuration in `docs/docs.json`.
+
+- **Structure**: All docs live under `docs/` with site entrypoint `docs/index.md`.
+- **Navigation**: Pages are registered without file extension in `docs/docs.json` under `navigation.groups`.
+- **Frontmatter**: Every documentation file must start with YAML frontmatter containing `title` and `description`.
+- **Cross-links**: Use site-relative markdown links (`/architecture`, `/scenarios`, `/metrics_and_scoring`, `/cli_reference`, `/design_rationale_and_assumptions`) rather than absolute file system URLs.
+- **Preview & Verification**:
+  ```bash
+  npx @upstash/docs7 dev ./docs
+  # or
+  npm run docs:dev
+  ```
+- **Deployment**: `npx @upstash/docs7 deploy ./docs` or automatic deployment via Context7 GitHub integration (pointing to directory `docs`).
 
 ## Code Conventions & Common Patterns
 

@@ -1,0 +1,15 @@
+{
+  "name": "llm-bench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Docs7 documentation platform for llmsweep",
+  "scripts": {
+    "docs:dev": "docs7 dev ./docs",
+    "docs:dev:npx": "npx @upstash/docs7 dev ./docs",
+    "docs:deploy": "docs7 deploy ./docs",
+    "docs:deploy:preview": "docs7 deploy ./docs --preview"
+  },
+  "devDependencies": {
+    "@upstash/docs7": "^0.1.10"
+  }
+}

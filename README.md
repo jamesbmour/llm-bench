@@ -682,6 +682,43 @@ ruff format
 
 ---
 
-## License
+## Documentation Platform (Docs7)
+
+`llmsweep` documentation is powered by [Docs7](https://context7.com/docs7) (`@upstash/docs7`), located in [`docs/`](docs/).
+
+### Preview Docs Locally
+
+To run the local documentation development server with live reload:
+
+```bash
+# Using npx (Node.js >= 20.19)
+npx @upstash/docs7 dev ./docs
+
+# Or using npm script
+npm run docs:dev
+```
+
+Open [http://localhost:3333](http://localhost:3333) in your browser.
+
+### Deploying & Publishing
+
+```bash
+# Authenticate with Context7
+npx @upstash/docs7 login
+
+# Deploy production documentation
+npx @upstash/docs7 deploy ./docs
+
+# Or create a preview deployment
+npx @upstash/docs7 deploy ./docs --preview
+```
+
+### Context7 / GitHub Integration
+
+When connecting the repository in the Context7 teamspace:
+1. Select repository: `jamesbmour/llm-bench`
+2. Set the documentation folder: `docs`
+3. Production branch: `main`
+
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

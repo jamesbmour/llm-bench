@@ -1,3 +1,8 @@
+---
+title: "CLI Reference & Configuration"
+description: "Command documentation, flags, environment variables, configuration precedence, and exit codes"
+---
+
 # CLI Reference & Configuration
 
 `llmsweep` provides a comprehensive command-line interface for running benchmarks, inspecting models, reviewing stored results, and diagnosing connectivity.

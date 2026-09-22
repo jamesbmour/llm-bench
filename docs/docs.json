@@ -1,0 +1,45 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "llmsweep",
+  "colors": {
+    "primary": "#16A34A",
+    "light": "#22C55E",
+    "dark": "#15803D"
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/jamesbmour/llm-bench"
+    }
+  ],
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "index"
+        ]
+      },
+      {
+        "group": "Architecture & Core",
+        "pages": [
+          "architecture",
+          "design_rationale_and_assumptions"
+        ]
+      },
+      {
+        "group": "Benchmarks & Methodology",
+        "pages": [
+          "scenarios",
+          "metrics_and_scoring"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "cli_reference"
+        ]
+      }
+    ]
+  }
+}

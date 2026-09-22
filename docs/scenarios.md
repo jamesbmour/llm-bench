@@ -1,3 +1,8 @@
+---
+title: "Benchmark Scenarios"
+description: "Workload specifications for structured tool calling, agentic coding, and algorithmic code synthesis"
+---
+
 # Benchmark Scenarios
 
 `llmsweep` tests models against three distinct workloads that probe tool-calling fidelity, multi-step problem solving, and raw code generation.
@@ -52,7 +57,10 @@ The model is supplied with a mock weather service tool:
 ### Scoring & Verification
 - **Tool Use Check**: Validates that `get_weather` was invoked with valid arguments and expected location targets.
 - **Regex Temperature Validation**: Analyzes the final assistant response with regular expressions to ensure the temperatures returned by the tool are accurately reported without hallucinations.
-- **Custom Task Flag (`--task`)**: Supplying `--task "Custom prompt..."` allows users to test arbitrary single-tool interactions. When `--task` is supplied, automatic scoring is disabled and cannot be combined with other scenarios.
+
+<Note>
+**Custom Task Flag (`--task`)**: Supplying `--task "Custom prompt..."` allows users to test arbitrary single-tool interactions. When `--task` is supplied, automatic scoring is disabled and cannot be combined with other scenarios.
+</Note>
 
 ---
 
@@ -101,7 +109,7 @@ The model receives a precise prompt instructing it to implement an optimal Fibon
 
 ### Code Extraction Engine
 The runner parses the model's single-turn completion:
-- **Fenced Blocks**: Prefers standard markdown code blocks (````python ... ```` or ````py ... ````).
+- **Fenced Blocks**: Prefers standard markdown code blocks (` ```python ` or ` ```py `).
 - **Unfenced Fallback**: If no code fence is present, the parser checks whether the entire output constitutes valid, compilable Python source code. Unfenced prose or conversational preamble causes immediate scoring failure.
 
 ### Subprocess Verification Sandbox
