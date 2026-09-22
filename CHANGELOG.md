@@ -28,5 +28,5 @@
   historical ETA, strict TOML configuration, and environment overrides.
 - Add offline contracts and Textual Pilot tests, plus macOS/Linux CI.
 
-Ollama, generic OpenAI, OpenRouter, billing, and OS-level sandboxing are deferred.
+Ollama, generic OpenAI, billing, and OS-level sandboxing are deferred.
 The original reference benchmark script remains unchanged.

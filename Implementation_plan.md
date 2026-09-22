@@ -12,7 +12,7 @@ Build a new Python 3.11+ CLI and Textual application for LM Studio on macOS and 
 
 Use the existing `lmstudio_agent_bench.py` only as LM Studio integration guidance. The brief defines scoring; the new implementation will have independent architecture and tests.
 
-Default to all three scenarios, serial execution, and one load/warmup per model followed by all repeats. Defer Ollama, generic OpenAI, OpenRouter, billing, and provider switching.
+Default to all three scenarios, serial execution, and one load/warmup per model followed by all repeats. Defer Ollama, generic OpenAI, billing, and provider switching.
 
 ## Architecture and measurement rules
 

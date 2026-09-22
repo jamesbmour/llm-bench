@@ -59,7 +59,7 @@ This command never sends chat completions or loads models — it's safe to run i
 
 #### `llmsweep providers`
 
-Lists all registered provider backends supported by this version of `llmsweep`. In v1, only `lmstudio` is implemented. Ollama, generic OpenAI, and OpenRouter are deferred to future releases.
+Lists all registered provider backends supported by this version of `llmsweep`. In v1, only `lmstudio` is implemented. Ollama and generic OpenAI are deferred to future releases.
 
 ---
 

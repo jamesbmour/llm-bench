@@ -423,7 +423,7 @@ pip install .
 | --- | --- | --- | --- | --- | --- |
 | LM Studio | `/api/v1/models`, fallback `/api/v0/models` | `/v1/chat/completions`, SSE | v1 instance load/unload; v0 JIT | usage, otherwise flagged estimate | — (not billed) |
 
-Ollama, generic OpenAI, and OpenRouter are deferred. See [design and assumptions](docs/design_rationale_and_assumptions.md).
+Ollama and generic OpenAI are deferred. See [design and assumptions](docs/design_rationale_and_assumptions.md).
 
 ## Quick Start & Common Recipes
 

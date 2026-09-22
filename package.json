@@ -9,6 +9,7 @@
     "docs:broken-links": "cd docs && mint broken-links"
   },
   "devDependencies": {
+    "@omniroute/opencode-provider": "^0.1.0",
     "mint": "^4.2.917"
   }
 }
