@@ -8,9 +8,26 @@
         "**/flutter/ephemeral": true,
         "**/Flutter/ephemeral": true,
         "**/.symlinks": true,
-        "**/.plugin_symlinks": true
+        "**/.plugin_symlinks": true,
+        ".ruff_cache": true,
+        ".kilo": true,
+        ".pytest_cache": true,
+        ".mypy_cache": true,
+        ".venv": true,
+        ".codegraph": true,
+        ".github": true,
+        ".vscode": true
     },
-    "hide-files.files": [],
+    "hide-files.files": [
+        ".ruff_cache",
+        ".kilo",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".venv",
+        ".codegraph",
+        ".github",
+        ".vscode"
+    ],
     "workbench.editorAssociations": {
         "*.copilotmd": "vscode.markdown.preview.editor",
         "*.parquet": "duckdb.dataFileViewer",
