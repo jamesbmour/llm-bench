@@ -11,6 +11,7 @@
   <img src="https://img.shields.io/badge/type--check-mypy%20strict-brightgreen.svg" alt="Type Check: Mypy Strict" />
   <img src="https://img.shields.io/badge/code%20style-ruff-black.svg" alt="Code Style: Ruff" />
   <img src="https://img.shields.io/badge/engine-LM%20Studio%20(v1%2Fv0)-purple.svg" alt="LM Studio Engine" />
+  <img src="https://img.shields.io/badge/tests-54%20passed-brightgreen.svg" alt="Tests: 54 passed" />
 </p>
 
 ---
@@ -47,20 +48,22 @@ Rather than relying on synthetic prompts or server-side API optimism, `llmsweep`
    - [Model Lifecycle Metrics](#model-lifecycle-metrics)
    - [Baseline Comparisons & Regressions](#baseline-comparisons--regressions)
 7. [Installation & Requirements](#installation--requirements)
-8. [Quick Start & Common Recipes](#quick-start--common-recipes)
-9. [CLI Command & Flag Reference](#cli-command--flag-reference)
-   - [Global Usage](#global-usage)
-   - [Subcommands](#subcommands)
-   - [llmsweep run Flags](#llmsweep-run-flags)
-   - [Model Selection Syntax](#model-selection-syntax)
-10. [Interactive Terminal UI (Textual)](#interactive-terminal-ui-textual)
+8. [Provider Matrix](#provider-matrix)
+9. [Quick Start & Common Recipes](#quick-start--common-recipes)
+10. [CLI Command & Flag Reference](#cli-command--flag-reference)
+    - [Global Usage](#global-usage)
+    - [Subcommands](#subcommands)
+    - [llmsweep run Flags](#llmsweep-run-flags)
+    - [Model Selection Syntax](#model-selection-syntax)
+11. [Interactive Terminal UI (Textual)](#interactive-terminal-ui-textual)
     - [TUI Screens](#tui-screens)
     - [Keyboard Shortcuts](#keyboard-shortcuts)
-11. [Configuration & Precedence](#configuration--precedence)
-12. [Exit Codes](#exit-codes)
-13. [Design Rationale & Resolved Assumptions](#design-rationale--resolved-assumptions)
-14. [Development & Testing](#development--testing)
-15. [License](#license)
+12. [Configuration & Precedence](#configuration--precedence)
+13. [Exit Codes](#exit-codes)
+14. [Design Rationale & Resolved Assumptions](#design-rationale--resolved-assumptions)
+15. [Development & Testing](#development--testing)
+16. [Documentation Platform (Mintlify)](#documentation-platform-mintlify)
+17. [License](#license)
 
 ---
 
@@ -420,7 +423,7 @@ pip install .
 | --- | --- | --- | --- | --- | --- |
 | LM Studio | `/api/v1/models`, fallback `/api/v0/models` | `/v1/chat/completions`, SSE | v1 instance load/unload; v0 JIT | usage, otherwise flagged estimate | — (not billed) |
 
-Ollama, generic OpenAI, and OpenRouter are deferred. See [design and assumptions](docs/design.md).
+Ollama, generic OpenAI, and OpenRouter are deferred. See [design and assumptions](docs/design_rationale_and_assumptions.md).
 
 ## Quick Start & Common Recipes
 
@@ -685,5 +688,8 @@ Mintlify uses a docs-as-code workflow synchronized with Git:
 2. Configure the documentation root directory as `docs`.
 3. Pushes to the `main` branch automatically trigger a deployment to `https://<subdomain>.mintlify.site`.
 
+---
+
+## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

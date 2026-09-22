@@ -33,13 +33,33 @@ providers/lmstudio   ──► errors, models, security, streams, providers/base
 
 Nothing in the pure core imports `providers`. `__init__.py` imports nothing.
 
-Planned (not yet written), in dependency order:
+The full acyclic dependency graph across the implemented system:
 
 ```
-scenarios  →  runner/  · results · store  →  render (plain)  →  tui (Textual)
+errors (leaf)
+security (leaf)
+
+models ──► errors
+streams ──► errors
+metrics ──► errors, streams
+selection ──► errors, models
+
+providers/base ──► models, security, streams
+providers/lmstudio ──► errors, models, security, streams, providers/base
+
+scenarios/base ──► errors, models, providers/base, streams
+scenarios/* ──► errors, models, providers/base, scenarios/base, streams
+
+results ──► errors, metrics, models
+store ──► errors, models, results, security
+config ──► errors, selection
+runner ──► errors, metrics, models, providers/base, results, scenarios/base, security, selection, store, streams
+plain ──► metrics, models, results, selection
+tui/* ──► errors, models, results, runner, security, selection, store
+cli ──► config, errors, models, plain, providers, results, runner, scenarios, security, selection, store, tui
 ```
 
-Data flow: `LMStudio.chat` streams HTTP bytes → `ChatStreamParser` yields normalized `StreamEvent`s → `TurnRecorder` accumulates turn observations → runner pools turn metrics into scenario samples, rolls up repeats, persists → renderers (plain and TUI) consume the same events and results.
+Data flow: `LMStudio.chat` streams HTTP bytes → `ChatStreamParser` yields normalized `StreamEvent`s → `TurnRecorder` accumulates turn observations → runner pools turn metrics into scenario samples, rolls up repeats, persists atomically to `store.py` → renderers (`plain.py` and `tui/`) consume the same normalized events and results.
 
 **Invariants:**
 
@@ -88,55 +108,70 @@ Lifecycle rules, all implemented in `LMStudio`:
 
 | Path | Purpose |
 | --- | --- |
-| `src/llmsweep/` | The installed package (`src` layout) |
+| `src/llmsweep/` | The installed package (`src` layout) with `py.typed` marker |
 | `src/llmsweep/providers/` | `base.py` (`Lease`, `Provider` Protocol), `lmstudio.py` (async httpx adapter) |
 | `src/llmsweep/security.py` | `Redactor` — secret scrubbing for logs/errors/exports |
-| `src/llmsweep/scenarios/` | **Empty** — milestone 3, weather / agent-code / codegen |
-| `src/llmsweep/render/` | **Empty** — milestone 4, plain renderer |
-| `src/llmsweep/tui/` | **Empty** — milestone 5, Textual screens |
-| `tests/fakes/lmstudio.py` | `FakeLMStudio` + `httpx.MockTransport`; `completion()`, `calls()` script builders |
-| `tests/fixtures/{lmstudio,streams}/` | **Empty** — fixtures are built inline by `tests/fakes/lmstudio.py` instead |
-| `llmsweep/` | **Legacy reference script only** — NOT the package |
-| `docs/` | Design docs — `index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`; describe finished v1, treat as spec |
+| `src/llmsweep/scenarios/` | `base.py`, `weather.py`, `agent_code.py`, `codegen.py` — deterministic benchmark scenarios |
+| `src/llmsweep/plain.py` | ANSI-free plain text tables for CI, pipes, and headless runs |
+| `src/llmsweep/runner.py` | Benchmark runner and session coordinator (`Runner`, `RunSession`) |
+| `src/llmsweep/results.py` | Dataclasses for turn, sample, model, and run results (`RunResult`, `ModelResult`, etc.) |
+| `src/llmsweep/store.py` | Atomic JSON store, index manager, and schema migration dispatcher |
+| `src/llmsweep/config.py` | Hierarchical configuration resolution (CLI > env > project > user TOML) |
+| `src/llmsweep/cli.py` | Complete CLI implementation (`run`, `list`, `show`, `export`, `doctor`, `providers`) |
+| `src/llmsweep/tui/` | Textual application (`app.py`, `screens/main.py`, `widgets/model_card.py`, `theme.tcss`) |
+| `src/llmsweep/py.typed` | PEP 561 marker declaring strict type hint distribution |
+| `tests/` | 54 tests across 11 test modules + fakes (`tests/fakes/lmstudio.py`) + screenshot script |
+| `docs/` | Mintlify documentation and rendered assets (`docs/assets/tui.svg`) |
+| `.github/workflows/ci.yml` | CI pipeline running pytest, ruff, mypy, build, and textual-floor on macOS & Ubuntu |
+| `CHANGELOG.md` | Release history and version documentation |
 | `.kilo/`, `.codegraph/`, `.ruff_cache/`, `.venv/` | Local tooling, gitignored |
 
-**Footgun:** `llmsweep/lmstudio_agent_bench.py` (1966 lines, `urllib`, `DEFAULT_HOST="localhost"`, `DEFAULT_PORT=1234`) is a repo-root directory that is *not* the `llmsweep` package and is *not* installed. It is excluded from ruff, mypy, and the sdist. Treat it as read-only integration guidance (it uses `/api/v1/models`, `/api/v0/models`, `/api/v1/models/load`, `/api/v1/models/unload`, `/v1/chat/completions`). Never import from it.
+**Legacy Reference Script:** The legacy `llmsweep/lmstudio_agent_bench.py` script has been removed from the repository. The clean `src/llmsweep` package is the sole implementation.
 
 ## Development Commands
 
-No Makefile, tox, nox, pre-commit, or CI workflows exist. The full local gate:
+Continuous Integration runs via GitHub Actions (`.github/workflows/ci.yml`) on macOS and Ubuntu across Python 3.11 and 3.14. The full local validation gate:
 
 ```bash
-uv sync --extra dev          # create/refresh the dev environment
-uv run pytest                # unit + contract tests
-uv run ruff check            # lint
-uv run ruff format           # format
-uv run mypy --strict         # type check
+uv sync --extra dev          # create/refresh dev environment
+uv run pytest                # unit + contract tests (54 passed offline)
+uv run ruff check            # lint checks
+uv run ruff format           # format code
+uv run mypy --strict         # strict type check (45 source files)
 ```
 
 `uv run` works without activating `.venv`; `.venv/bin/python -m pytest` is equivalent. Single test: `uv run pytest tests/test_streams.py::test_ndjson_yields_nothing`.
 
-Per-milestone definition of done (from the spec): tests + `ruff check` + `mypy --strict`, then the milestone's own acceptance command. Release gate adds package build/install and CLI smoke tests. Once the CLI exists: `llmsweep run --plain`, `list`, `show`, `export`, `doctor`, `providers`.
+Full CLI commands are fully functional:
+```bash
+uv run llmsweep run --plain --models "..."  # headless plain benchmark
+uv run llmsweep list                        # list models
+uv run llmsweep show <path>                 # inspect run offline
+uv run llmsweep export <path> --json <file> # export offline
+uv run llmsweep doctor                      # health check
+uv run llmsweep providers                   # show providers
+```
 
 `mypy --strict` is enforced via `[tool.mypy] strict = true`, not just the CLI flag.
 
 ## Milestone Status
 
-`Implementation_plan.md` defines five milestones. **Milestones 1 and 2 are complete.** Each milestone must pass its tests, Ruff, and strict mypy before the next begins.
+All five milestones defined in `Implementation_plan.md` are **complete** in v1.0.0.
 
 | # | Scope | State |
 | --- | --- | --- |
-| 1 | Pure logic: `streams`, `models`, `selection`, `metrics` | Done |
-| 2 | LM Studio provider + HTTP stubs | Done — `providers/`, `security.py`, `tests/fakes/lmstudio.py` |
-| 3 | Scenarios, runner, results, store | Not started |
-| 4 | Plain renderer + full CLI | Not started |
-| 5 | Textual TUI + release deliverables | Not started |
+| 1 | Pure logic: `streams`, `models`, `selection`, `metrics` | Complete |
+| 2 | LM Studio provider + HTTP stubs | Complete — `providers/`, `security.py`, `tests/fakes/lmstudio.py` |
+| 3 | Scenarios, runner, results, store | Complete — `scenarios/`, `runner.py`, `results.py`, `store.py` |
+| 4 | Plain renderer + full CLI | Complete — `plain.py`, `config.py`, `cli.py`, `__main__.py` |
+| 5 | Textual TUI + release deliverables | Complete — `tui/`, `CHANGELOG.md`, `docs/assets/tui.svg`, `.github/workflows/ci.yml`, `py.typed` |
 
-**`src/llmsweep/cli.py` does not exist yet**, so the declared console script `llmsweep = "llmsweep.cli:main"` is currently unresolvable. Do not write code that assumes it exists.
-
-`CLAUDE.md` is a sibling agent-instruction file covering the same ground. It has drifted (it still says only milestone 1 exists and that `uv.lock` is committed). Where they disagree, trust this file and the code.
-
-Spec-mandated deliverables still missing: `CHANGELOG.md`, an `export_screenshot()` image, and macOS/Ubuntu CI for 3.11 + current stable. `docs/` is now populated (`index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`) — note these describe the *finished* v1, so treat them as spec, not current behavior.
+All spec-mandated deliverables are implemented and tested:
+- `src/llmsweep/cli.py` powers the `llmsweep` console script with all subcommands (`run`, `list`, `show`, `export`, `doctor`, `providers`).
+- `docs/assets/tui.svg` is generated offline via `App.export_screenshot()`.
+- `CHANGELOG.md` documents version 1.0.0 releases.
+- `.github/workflows/ci.yml` provides automated GitHub Actions CI for macOS and Ubuntu on Python 3.11 and 3.14, including a textual-floor test.
+- `py.typed` is present in `src/llmsweep/py.typed`.
 
 ## Documentation Platform (Mintlify)
 
@@ -213,12 +248,26 @@ Tests pass `transport=fake.transport, sleep=no_wait` — never `monkeypatch` htt
 | `src/llmsweep/metrics.py` | `TurnRecorder`, `TurnMetrics`, `summarize`, `pooled_throughput`, `regression_pct` |
 | `src/llmsweep/models.py` | `ModelRef`, `ModelInfo`, `normalize_model`, `parse_ref`, `sort_models` |
 | `src/llmsweep/selection.py` | `resolve_selection`, `resolve_scenarios`, `parse_index_spec`, `filter_models` |
-| `src/llmsweep/security.py` | `Redactor` — literal-secret replace plus a `Bearer <token>` regex |
+| `src/llmsweep/security.py` | `Redactor` — secret scrubbing for logs/errors/exports |
 | `src/llmsweep/providers/base.py` | `Lease`, `Provider` Protocol — the runner's contract |
 | `src/llmsweep/providers/lmstudio.py` | `LMStudio` async adapter; `sse()` test-helper frame builder |
+| `src/llmsweep/scenarios/base.py` | Base `Scenario` protocol, `TurnContext`, and sandbox execution helpers |
+| `src/llmsweep/scenarios/weather.py` | Multi-step tool-calling scenario (`get_weather`, `convert_temperature`, `get_current_time`) |
+| `src/llmsweep/scenarios/agent_code.py` | Bug fixing scenario with workspace tools (`list_files`, `read_file`, `grep`, `write_file`) |
+| `src/llmsweep/scenarios/codegen.py` | Single-turn Fibonacci synthesis validated in an isolated subprocess |
+| `src/llmsweep/runner.py` | Core benchmark runner, session coordinator (`RunSession`), and event dispatcher |
+| `src/llmsweep/results.py` | Dataclasses for turn metrics, sample results, model results, and run summaries |
+| `src/llmsweep/store.py` | Atomic schema-versioned JSON store, index manager, and migration dispatcher |
+| `src/llmsweep/config.py` | Configuration resolution (CLI > env > project > user TOML) and validation |
+| `src/llmsweep/plain.py` | Plain ANSI-free table renderer for CI, pipes, and headless runs |
+| `src/llmsweep/cli.py` | Full CLI implementation (`run`, `list`, `show`, `export`, `doctor`, `providers`) |
+| `src/llmsweep/tui/app.py` | Textual application (`SweepApp`), `@work` worker lifecycle, and stream buffering |
+| `src/llmsweep/py.typed` | PEP 561 marker declaring strict type hints |
 | `tests/fakes/lmstudio.py` | Socket-free `FakeLMStudio`, script builders `completion()` / `calls()` |
-| `src/llmsweep/__init__.py` | `__version__` only |
+| `tests/capture_screenshot.py` | Headless screenshot export generating `docs/assets/tui.svg` |
 | `tests/conftest.py` | Autouse `no_network` socket guard |
+| `.github/workflows/ci.yml` | GitHub Actions CI for macOS and Ubuntu on Python 3.11 and 3.14 |
+| `CHANGELOG.md` | Version 1.0.0 changelog |
 | `pyproject.toml` | Build, deps, and all tool config inline |
 | `Implementation_plan.md` | Authoritative architecture and acceptance spec |
 | `README.md` | User-facing CLI/config/exit-code reference |
@@ -230,12 +279,12 @@ Tests pass `transport=fake.transport, sleep=no_wait` — never `monkeypatch` htt
 ## Runtime/Tooling Preferences
 
 - **Python ≥ 3.11** (`requires-python` and ruff `target-version = "py311"`); the local venv is CPython 3.12.11 with `uv` 0.8.24.
-- **`uv` is the package manager.** `uv.lock` exists on disk and is *not* gitignored (the `#uv.lock` line stays commented), but it is currently untracked — stage it before relying on it for reproducibility. Use `uv sync --extra dev`.
-- **`.vscode/settings.json` sets `python-envs.defaultEnvManager` to conda** — this contradicts the uv-based setup. Ignore it and use uv.
+- **`uv` is the package manager.** `uv.lock` is tracked in git. Use `uv sync --extra dev`.
+- **`.vscode/settings.json`** configured with `ms-python.python:venv` and `pip`.
 - **Hatchling** build backend; `[tool.hatch.build.targets.wheel] packages = ["src/llmsweep"]`.
-- **Ruff**: line length 100, `src = ["src", "tests"]`, rule families `E F W I UP B C4 SIM RUF ASYNC PTH TID`, `B008` ignored, `E501` waived for `tests/*`. `llmsweep/lmstudio_agent_bench.py` is excluded — do not lint or fix it.
-- **Deps**: `httpx`, `textual`, `rich`, `platformdirs`. Dev: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `textual-dev`, `respx`, `pytest-textual-snapshot`. Provider tests currently use `httpx.MockTransport` rather than `respx`; `respx` and `pytest-textual-snapshot` remain unused until the TUI milestone.
-- **No `py.typed`** marker yet, despite the strict typing posture.
+- **Ruff**: line length 100, `src = ["src", "tests"]`, rule families `E F W I UP B C4 SIM RUF ASYNC PTH TID`, `B008` ignored, `E501` waived for `tests/*`.
+- **Deps**: `httpx`, `textual`, `rich`, `platformdirs`. Dev: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `textual-dev`, `respx`, `pytest-textual-snapshot`.
+- **`py.typed`**: Included in `src/llmsweep/py.typed` for strict type distribution.
 
 Config precedence (CLI > environment > project TOML > user TOML): `LLMSWEEP_HOST`, `LLMSWEEP_API_KEY`, `LLMSWEEP_TIMEOUT`, `LLMSWEEP_DATA_DIR`; project `llmsweep.toml` or `pyproject.toml`; user `~/.config/llmsweep/config.toml`. Credentials are scoped to the configured origin, redirects disabled, secrets redacted before logging, exporting, or persisting.
 
@@ -249,17 +298,21 @@ pytest, configured in `pyproject.toml`: `testpaths = ["tests"]`, `addopts = "-q 
 
 **Determinism through injection, not patching.** Clocks and sleeps are constructor arguments (`clock=`, `sleep=`), and `TurnRecorder.observe(event, now)` takes an explicit timestamp. Tests pass `sleep=no_wait` to skip backoff. Never `time.sleep`, never read the real clock in a test, never `monkeypatch` `time`/`random`/httpx.
 
-Current suite: 13 collected tests across 4 files — 4 async test functions in `test_providers.py` (5 collected items via one `@pytest.mark.parametrize`), the rest sync. No skips.
+Current suite: **54 collected tests across 11 test modules**, all passing offline with zero warnings:
 
-- `tests/test_streams.py` — SSE fragmentation (one byte at a time), split UTF-8, mixed reasoning/text/tool deltas, usage-only endings, NDJSON yields nothing, malformed payload raises.
+- `tests/test_streams.py` — SSE fragmentation (one byte at a time), split UTF-8, mixed reasoning/text/tool deltas, usage-only endings, NDJSON yields nothing, malformed payload raises `StreamProtocolError`.
 - `tests/test_selection.py` — index/range resolution, ambiguity, out-of-range, colon-containing IDs, metadata-not-name filtering, size sorting, scenario validation.
 - `tests/test_metrics.py` — generation-window-only timing, reasoning-inclusive TTFT, token estimation, pooled throughput, percentile statistics, regression math.
 - `tests/test_providers.py` — `test_provider_contract` parameterized over `["v1", "v0"]` drives the whole `Provider` protocol against `FakeLMStudio`; plus readiness polling vs. preexisting instances, retry-on-500 but never after a delta was emitted, and 401 never retrying.
+- `tests/test_scoring.py` — deterministic scoring for all three scenarios (`weather`, `agent_code`, `codegen`), path traversal rejection, write limits, completion markers, timeout handling.
+- `tests/test_runner.py` — end-to-end benchmark execution against stubs, single warmup turn, fresh scenario workspaces, error isolation, cancellation cleanup, and deterministic byte-identical serialization parity between plain and TUI paths.
+- `tests/test_store.py` — atomic writes via temporary sibling files and `os.replace`, index consistency, transcript logging, schema migration dispatching, and unknown schema rejection.
+- `tests/test_config.py` — precedence resolution (CLI > env > project > user TOML), secret redacting, and validation of unknown keys and literal API keys.
+- `tests/test_cli.py` — complete CLI subcommands (`run`, `list`, `show`, `export`, `doctor`, `providers`), exit codes (`0`, `1`, `2`, `3`, `4`), and offline exports (JSON, CSV, Markdown).
+- `tests/test_baseline.py` — baseline regression comparisons, 5% variance thresholds, `--fail-on-regression` exit code 3, and token source mismatch warnings.
+- `tests/test_robustness.py` — mid-stream network disconnections, 500 server error recoveries, and unexpected tool payload resilience.
+- `tests/test_tui_pilot.py` — Textual Pilot headless testing, widget states, worker isolation, cancellation, 1000+ deltas/sec stream buffering, and lossless resizing.
 
 Conventions: plain `def test_*() -> None` / `async def test_*() -> None` functions (no classes), one behavior per test with a descriptive name, `pytest.raises(SelectionError, match=r"...")` for error paths, `pytest.approx` for floats, `is None` for missing values. Tests import the package under its installed name (`from llmsweep.streams import ...`) and fakes via `from tests.fakes.lmstudio import ...` (both `tests/` and `tests/fakes/` have `__init__.py`). Module-level helpers are allowed for fixture construction (`packet(value)` in `test_streams.py`, `sse(value)` in `providers/lmstudio.py`).
 
 Fake scripting: `fake.scripts` is a list of per-request responses — a `list[bytes]` SSE script or an `int` HTTP status. `completion("text")` builds a split content stream plus finish and usage frames; `calls(("get_weather", {...}))` builds fragmented tool-call frames. `fake.load_pending` simulates a load that is not immediately ready; `fake.disconnect` and `fake.gate` simulate mid-stream failure and stalled chunks.
-
-**Testing gaps** — the spec mandates more than exists today: secret redaction assertions, scenario scoring (positive and negative cases, traversal, symlink escape, timeout), store schema migration, byte-identical persisted output from plain and TUI paths, and Textual pilot tests (widget state, worker isolation, cancellation cleanup, lossless resize, a synthetic 1000+ deltas/second stream). Every test must be deterministic and network-free.
-
-When adding a test, prefer asserting observable behavior over implementation detail, and skip tests that merely assert field copies, defaults, or forwarding.
