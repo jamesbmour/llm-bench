@@ -1,6 +1,6 @@
 ---
 title: "Overview"
-description: "Automated benchmarking and evaluation suite for local LM Studio models"
+description: "Automated benchmarking and evaluation suite for local LM Studio models\nSet up custom domain"
 ---
 
 # llmsweep Documentation
