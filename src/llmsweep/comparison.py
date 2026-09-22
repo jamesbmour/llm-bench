@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from llmsweep.metrics import regression_pct
 from llmsweep.results import RunResult, compare_runs
+from llmsweep.security import Redactor
+from llmsweep.statistics import wilson_interval
+from llmsweep.store import atomic_write, canonical_json
 
 _SETTING_KEYS = ("scenarios", "max_tokens", "max_turns", "task", "no_warmup", "benchmark_version")
 
@@ -151,13 +157,20 @@ def build_views(
     grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for run in runs:
         for row in _sample_rows(run):
-            if target and target not in row["target"]:
+            if target and target.casefold() not in row["target"].casefold():
                 continue
-            if benchmark and row["benchmark"] != benchmark:
+            if benchmark and benchmark.casefold() not in row["benchmark"].casefold():
                 continue
-            if task and row["task_id"] != task:
+            if (
+                task
+                and task.casefold() not in row["task_id"].casefold()
+                and task.casefold() not in row["benchmark"].casefold()
+            ):
                 continue
-            if configuration and row["configuration"] != configuration:
+            if configuration and (
+                row["configuration"] is None
+                or configuration.casefold() not in row["configuration"].casefold()
+            ):
                 continue
             grouped[(row["run_id"], row["target"], row["benchmark"], row["target_kind"])].append(
                 row
@@ -173,6 +186,22 @@ def build_views(
         ]
         speeds = [float(row["tok_s"]) for row in scored if isinstance(row["tok_s"], (int, float))]
         fingerprints = {row["configuration"] for row in rows}
+        interval = wilson_interval(successes, len(scored)) if scored else None
+        coverage = (len(scored) / len(rows)) if rows else None
+        incomplete = any(row["status"] not in {"completed", "skipped"} for row in rows) or (
+            len(scored) < len(rows)
+        )
+        dur_val = (sum(durations) / len(durations)) if durations else None
+        speed_val = (sum(speeds) / len(speeds)) if speeds else None
+        rate_val = (successes / len(scored)) if scored else None
+        unavailable = []
+        if rate_val is None:
+            unavailable.append("success_rate")
+        if dur_val is None:
+            unavailable.append("task_duration_s")
+        if speed_val is None:
+            unavailable.append("tok_s")
+
         points.append(
             {
                 "run_id": run_id,
@@ -186,12 +215,21 @@ def build_views(
                     for row in rows
                     if row["status"] in {"error", "completed"} and row["success"] is False
                 ),
-                "success_rate": (successes / len(scored)) if scored else None,
-                "task_duration_s": (sum(durations) / len(durations)) if durations else None,
-                "tok_s": (sum(speeds) / len(speeds)) if speeds else None,
+                "errors": sum(1 for row in rows if row["status"] == "error"),
+                "skipped": sum(1 for row in rows if row["status"] == "skipped"),
+                "cancelled": sum(
+                    1 for row in rows if row["status"] in {"cancelled", "interrupted"}
+                ),
+                "success_rate": rate_val,
+                "confidence_interval": list(interval) if interval else None,
+                "task_duration_s": dur_val,
+                "tok_s": speed_val,
+                "coverage": coverage,
+                "incomplete": incomplete,
                 "timing_comparable": len(fingerprints) <= 1
-                and all(item is not None for item in fingerprints),
-                "incomplete": any(row["status"] not in {"completed", "skipped"} for row in rows),
+                and all(item is not None for item in fingerprints)
+                and not any(row.get("diagnostic") for row in rows),
+                "unavailable_metrics": unavailable,
             }
         )
 
@@ -203,9 +241,15 @@ def build_views(
                 "target_kind": point["target_kind"],
                 "benchmark": point["benchmark"],
                 "success_rate": point["success_rate"],
+                "confidence_interval": point["confidence_interval"],
                 metric: point[metric],
                 "samples": point["samples"],
+                "scored": point["scored"],
                 "failures": point["failures"],
+                "coverage": point["coverage"],
+                "incomplete": point["incomplete"],
+                "timing_comparable": point["timing_comparable"],
+                "unavailable_metrics": point["unavailable_metrics"],
             }
             for point in points
         ]
@@ -221,3 +265,231 @@ def build_views(
             "Model-harness rows and whole-agent rows use target_kind and are not one ranking.",
         ],
     }
+
+
+def build_ascii_plot(
+    points: list[dict[str, Any]],
+    metric: str,
+    *,
+    width: int = 60,
+    height: int = 12,
+) -> str:
+    metric_label = "Duration (s)" if metric == "task_duration_s" else "Throughput (tok/s)"
+    if not points:
+        return f"  [No data to plot for {metric_label}]\n"
+
+    valid = [p for p in points if p.get(metric) is not None and p.get("success_rate") is not None]
+    if not valid:
+        return f"  [Unavailable metrics: no plottable data for {metric_label}]\n"
+
+    x_vals = [float(p[metric]) for p in valid]
+    min_x = min(x_vals)
+    max_x = max(x_vals)
+    if min_x == max_x:
+        min_x = max(0.0, min_x - 1.0)
+        max_x = max_x + 1.0 if max_x > 0 else 1.0
+
+    min_y = 0.0
+    max_y = 1.0
+
+    plot_w = max(20, min(width - 14, 80))
+    plot_h = max(5, min(height - 4, 15))
+
+    grid = [[" " for _ in range(plot_w)] for _ in range(plot_h)]
+    markers: list[tuple[str, dict[str, Any]]] = []
+
+    for i, p in enumerate(valid):
+        marker = str(i + 1) if i < 9 else chr(ord("A") + i - 9)
+        markers.append((marker, p))
+        x = float(p[metric])
+        y = float(p["success_rate"])
+        col = round((x - min_x) / (max_x - min_x) * (plot_w - 1))
+        col = max(0, min(plot_w - 1, col))
+        row = round((max_y - y) / (max_y - min_y) * (plot_h - 1))
+        row = max(0, min(plot_h - 1, row))
+        grid[row][col] = marker
+    lines = []
+    lines.append(f"  Success Rate vs {metric_label}")
+    for r in range(plot_h):
+        if r == 0:
+            y_label = "100% |"
+        elif r == plot_h // 2:
+            y_label = " 50% |"
+        elif r == plot_h - 1:
+            y_label = "  0% |"
+        else:
+            y_label = "     |"
+        lines.append(f"{y_label}{''.join(grid[r])}")
+
+    lines.append("     +" + "-" * plot_w)
+    x_min_str = f"{min_x:.1f}"
+    x_max_str = f"{max_x:.1f}"
+    spacing = plot_w - len(x_min_str) - len(x_max_str)
+    if spacing > 0:
+        lines.append("      " + x_min_str + " " * spacing + x_max_str)
+    else:
+        lines.append(f"      {x_min_str} .. {x_max_str}")
+    lines.append(f"      {metric_label}")
+    lines.append("")
+    lines.append("  Legend:")
+    for marker, p in markers:
+        ci = p.get("confidence_interval")
+        ci_str = f" [95% CI: {ci[0]:.1%}-{ci[1]:.1%}]" if ci else ""
+        timing_str = " (timing incompatible)" if not p.get("timing_comparable") else ""
+        cov_str = f" coverage: {p['coverage']:.0%}" if p.get("coverage") is not None else ""
+        entry = (
+            f"   [{marker}] {p['target']} ({p['benchmark']}) — "
+            f"success: {p['success_rate']:.1%}{ci_str}, {metric_label}: {p[metric]:.2f}"
+            f"{timing_str}{cov_str}"
+        )
+        lines.append(entry)
+    unavail = [p for p in points if p.get(metric) is None or p.get("success_rate") is None]
+    if unavail:
+        lines.append("  Omitted (metrics unavailable):")
+        for p in unavail:
+            lines.append(
+                f"   · {p['target']} ({p['benchmark']}) — {', '.join(p['unavailable_metrics'])}"
+            )
+
+    return "\n".join(lines)
+
+
+def comparison_to_json(view: dict[str, Any]) -> str:
+    """Serialize comparison view data to canonical JSON."""
+    return canonical_json(view)
+
+
+def comparison_to_csv(view: dict[str, Any]) -> str:
+    """Export comparison view points to CSV format."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "run_id",
+            "target",
+            "target_kind",
+            "benchmark",
+            "samples",
+            "scored",
+            "failures",
+            "coverage",
+            "incomplete",
+            "success_rate",
+            "ci_95_low",
+            "ci_95_high",
+            "task_duration_s",
+            "tok_s",
+            "timing_comparable",
+        ]
+    )
+    for p in view.get("points", []):
+        ci = p.get("confidence_interval")
+        writer.writerow(
+            [
+                p.get("run_id"),
+                p.get("target"),
+                p.get("target_kind"),
+                p.get("benchmark"),
+                p.get("samples"),
+                p.get("scored"),
+                p.get("failures"),
+                f"{p['coverage']:.4f}" if p.get("coverage") is not None else "",
+                p.get("incomplete"),
+                f"{p['success_rate']:.4f}" if p.get("success_rate") is not None else "",
+                f"{ci[0]:.4f}" if ci else "",
+                f"{ci[1]:.4f}" if ci else "",
+                f"{p['task_duration_s']:.4f}" if p.get("task_duration_s") is not None else "",
+                f"{p['tok_s']:.4f}" if p.get("tok_s") is not None else "",
+                p.get("timing_comparable"),
+            ]
+        )
+    return output.getvalue()
+
+
+def comparison_to_markdown(view: dict[str, Any]) -> str:
+    """Export comparison view tables and plots to Markdown."""
+    lines = ["# Quality-Speed Comparison Report\n"]
+    if view.get("notes"):
+        lines.append("### Notes")
+        for note in view["notes"]:
+            lines.append(f"- {note}")
+        lines.append("")
+
+    lines.append("## Success vs Task Duration\n")
+    header_dur = (
+        "| Run | Target | Kind | Benchmark | Success Rate | 95% CI | Duration (s) | "
+        "Samples | Scored | Coverage | Timing Comparable |"
+    )
+    lines.append(header_dur)
+    lines.append(
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    )
+    for row in view.get("success_vs_duration", []):
+        ci = row.get("confidence_interval")
+        ci_str = f"[{ci[0]:.1%}, {ci[1]:.1%}]" if ci else "n/a"
+        rate_str = f"{row['success_rate']:.1%}" if row.get("success_rate") is not None else "n/a"
+        dur_val = row.get("task_duration_s")
+        dur_str = f"{dur_val:.2f}" if dur_val is not None else "n/a"
+        cov_str = f"{row['coverage']:.0%}" if row.get("coverage") is not None else "n/a"
+        timing_str = "yes" if row.get("timing_comparable") else "no (differing settings)"
+        lines.append(
+            f"| {row['run_id']} | {row['target']} | {row['target_kind']} | {row['benchmark']} |"
+            f" {rate_str} | {ci_str} | {dur_str} | {row['samples']} | {row['scored']} |"
+            f" {cov_str} | {timing_str} |"
+        )
+    lines.append("")
+
+    dur_plot = build_ascii_plot(view.get("points", []), "task_duration_s")
+    lines.append("```text")
+    lines.append(dur_plot)
+    lines.append("```\n")
+
+    lines.append("## Success vs Throughput (tok/s)\n")
+    header_tok = (
+        "| Run | Target | Kind | Benchmark | Success Rate | 95% CI | tok/s | "
+        "Samples | Scored | Coverage | Timing Comparable |"
+    )
+    lines.append(header_tok)
+    lines.append(
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    )
+    for row in view.get("success_vs_throughput", []):
+        ci = row.get("confidence_interval")
+        ci_str = f"[{ci[0]:.1%}, {ci[1]:.1%}]" if ci else "n/a"
+        rate_str = f"{row['success_rate']:.1%}" if row.get("success_rate") is not None else "n/a"
+        tok_val = row.get("tok_s")
+        tok_str = f"{tok_val:.2f}" if tok_val is not None else "n/a"
+        cov_str = f"{row['coverage']:.0%}" if row.get("coverage") is not None else "n/a"
+        timing_str = "yes" if row.get("timing_comparable") else "no (differing settings)"
+        lines.append(
+            f"| {row['run_id']} | {row['target']} | {row['target_kind']} | {row['benchmark']} |"
+            f" {rate_str} | {ci_str} | {tok_str} | {row['samples']} | {row['scored']} |"
+            f" {cov_str} | {timing_str} |"
+        )
+    lines.append("")
+
+    tok_plot = build_ascii_plot(view.get("points", []), "tok_s")
+    lines.append("```text")
+    lines.append(tok_plot)
+    lines.append("```\n")
+
+    return "\n".join(lines)
+
+
+def export_comparison(
+    view: dict[str, Any],
+    *,
+    json_path: Path | None = None,
+    csv_path: Path | None = None,
+    markdown_path: Path | None = None,
+    redact: Redactor | None = None,
+) -> None:
+    """Atomically write comparison view outputs with optional redaction."""
+    clean = redact or Redactor()
+    for path, text in [
+        (json_path, comparison_to_json(view)),
+        (csv_path, comparison_to_csv(view)),
+        (markdown_path, comparison_to_markdown(view)),
+    ]:
+        if path is not None:
+            atomic_write(path, clean(text))

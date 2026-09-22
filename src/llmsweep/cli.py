@@ -159,7 +159,9 @@ def _catalog_commands(subcommands: Any) -> None:
     compare = subcommands.add_parser("compare")
     compare.add_argument("paths", nargs=2, type=Path)
     compare.add_argument("--plain", action="store_true", default=None)
-
+    compare.add_argument("--json", type=Path, help="Export comparison as JSON")
+    compare.add_argument("--csv", type=Path, help="Export comparison as CSV")
+    compare.add_argument("--markdown", type=Path, help="Export comparison as Markdown")
 
 def normalize_argv(argv: list[str]) -> list[str]:
     if argv and argv[0] in ("--help", "-h"):
@@ -316,7 +318,7 @@ def _local(args: argparse.Namespace, settings: Settings) -> int:
         print(project / "profiles" / f"{args.name}.toml")
         return 0
     if args.command == "compare":
-        from .comparison import build_views, compare_checked
+        from .comparison import build_views, compare_checked, export_comparison
 
         current = load_run(args.paths[0])
         baseline = load_run(args.paths[1])
@@ -332,6 +334,14 @@ def _local(args: argparse.Namespace, settings: Settings) -> int:
             )
         view = build_views([current, baseline])
         print(f"points\t{len(view['points'])}")
+        if any((args.json, args.csv, args.markdown)):
+            export_comparison(
+                view,
+                json_path=args.json,
+                csv_path=args.csv,
+                markdown_path=args.markdown,
+                redact=Redactor(settings.api_key),
+            )
         return 0
     from .benchmarks.presets import plan_report
 
@@ -403,7 +413,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "providers":
             print("lmstudio\tlocal\tHTTP/SSE\tload/unload on v1; v0 JIT fallback")
             return 0
-        if args.command in ("benchmarks", "profiles", "compare", "setup"):
+        if args.command == "compare":
+            if interactive:
+                from .tui.app import SweepApp
+
+                current = load_run(args.paths[0])
+                baseline = load_run(args.paths[1])
+                app = SweepApp(settings, comparison_runs=[current, baseline])
+                code = app.run()
+                return code or 0
+            return _local(args, settings)
+        if args.command in ("benchmarks", "profiles", "setup"):
             return _local(args, settings)
         if args.command in ("show", "export"):
             run = load_run(args.path)

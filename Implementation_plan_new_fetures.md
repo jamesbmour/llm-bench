@@ -4,12 +4,12 @@
 
 **Goal:** Make it easy to compare correctness, responsiveness, and reliability across saved runs.
 
-### Remaining
+### Completed
 
-- [ ] TUI filters for target, benchmark, task set, and configuration when comparing saved runs.
-- [ ] Success-versus-task-duration and success-versus-throughput views in the TUI, each with an accessible table.
-- [ ] Display confidence estimates, sample counts, incomplete coverage, and unavailable metrics in comparison views.
-- [ ] Export computed comparison view data through JSON, CSV, and Markdown.
+- [x] TUI filters for target, benchmark, task set, and configuration when comparing saved runs.
+- [x] Success-versus-task-duration and success-versus-throughput views in the TUI, each with an accessible table.
+- [x] Display confidence estimates, sample counts, incomplete coverage, and unavailable metrics in comparison views.
+- [x] Export computed comparison view data through JSON, CSV, and Markdown.
 
 **Acceptance criteria:** Incompatible runs never receive an automatic timing verdict; tables and plots agree; calculations live outside the renderers; comparison works without an inference server.
 

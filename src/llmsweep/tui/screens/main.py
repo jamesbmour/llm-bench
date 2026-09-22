@@ -15,6 +15,7 @@ from textual.events import Resize
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Input, ProgressBar, RichLog, Static
 
+from llmsweep.comparison import build_ascii_plot, build_views
 from llmsweep.errors import SelectionError
 from llmsweep.models import ModelInfo, ModelRef
 from llmsweep.plain import display, ordered_models
@@ -341,6 +342,7 @@ class ResultsScreen(SweepScreen):
         Binding("f", "status_filter", "Status filter"),
         Binding("enter", "transcript", "Transcript"),
         Binding("d", "diff", "Baseline diff"),
+        Binding("c", "compare", "Compare"),
         Binding("e", "export", "Export"),
         Binding("r", "rerun", "Rerun model"),
         Binding("escape", "focus_table", "", show=False),
@@ -527,13 +529,231 @@ class ResultsScreen(SweepScreen):
     def action_diff(self) -> None:
         self.controller.show_diff()
 
+    def action_compare(self) -> None:
+        self.controller.show_comparison()
+
     def action_export(self) -> None:
         self.controller.show_export()
-
     def action_rerun(self) -> None:
         model = self.selected_model()
         if model:
             self.controller.rerun_model(model.model.ref)
+
+
+class ComparisonScreen(SweepScreen):
+    """Quality-speed comparison dashboard comparing correctness, responsiveness, and reliability."""
+
+    AUTO_FOCUS = "#compare-table"
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("v", "toggle_view", "Toggle view"),
+        Binding("e", "export", "Export"),
+        Binding("slash", "filter_target", "Filter"),
+        Binding("escape", "back", "Back"),
+    ]
+
+    def __init__(self, runs: list[RunResult], default_metric: str = "task_duration_s") -> None:
+        super().__init__()
+        self.runs = runs
+        self.metric = default_metric
+        self.filter_target = ""
+        self.filter_benchmark = ""
+        self.filter_task = ""
+        self.filter_config = ""
+        self.view: dict[str, Any] = {}
+        self.points: list[dict[str, Any]] = []
+
+    def compose(self) -> ComposeResult:
+        yield TitleBar("QUALITY-SPEED COMPARISON")
+        with Horizontal(id="compare-filter-bar"):
+            yield Input(placeholder="target (model)", id="compare-filter-target")
+            yield Input(placeholder="benchmark", id="compare-filter-benchmark")
+            yield Input(placeholder="task", id="compare-filter-task")
+            yield Input(placeholder="config", id="compare-filter-config")
+        with Horizontal(id="compare-toolbar"):
+            yield Button("View: Duration", id="compare-toggle-button", variant="primary")
+            yield Button("Export", id="compare-export-button")
+            yield Static("", id="compare-description", markup=False)
+        with VerticalScroll(id="compare-content"):
+            yield Static("", id="compare-plot", markup=False)
+            yield DataTable(id="compare-table", cursor_type="row", zebra_stripes=True)
+            yield Static("", id="compare-detail", markup=False)
+        yield StatusBar()
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#compare-filter-target", Input).border_title = "Target  /"
+        self.query_one("#compare-filter-benchmark", Input).border_title = "Benchmark"
+        self.query_one("#compare-filter-task", Input).border_title = "Task / Suite"
+        self.query_one("#compare-filter-config", Input).border_title = "Config"
+        self.refresh_views()
+
+    def refresh_views(self) -> None:
+        self.view = build_views(
+            self.runs,
+            target=self.filter_target or None,
+            benchmark=self.filter_benchmark or None,
+            task=self.filter_task or None,
+            configuration=self.filter_config or None,
+        )
+        self.points = self.view.get("points", [])
+
+        metric_label = (
+            "Task Duration (s)" if self.metric == "task_duration_s" else "Throughput (tok/s)"
+        )
+        toggle_btn = self.query_one("#compare-toggle-button", Button)
+        toggle_btn.label = f"View: {metric_label}"
+
+        total_pts = len(self.points)
+        desc_text = f"{len(self.runs)} run(s) · {total_pts} comparison point(s) · {metric_label}"
+        self.query_one("#compare-description", Static).update(Text(desc_text))
+
+        plot_str = build_ascii_plot(self.points, self.metric)
+        self.query_one("#compare-plot", Static).update(Text(plot_str))
+
+        table = self.query_one("#compare-table", DataTable)
+        previous_row = table.cursor_row
+        table.clear(columns=True)
+        table.add_columns(
+            "Run",
+            "Target",
+            "Kind",
+            "Benchmark",
+            "Success Rate [95% CI]",
+            metric_label,
+            "Samples",
+            "Coverage",
+            "Timing",
+        )
+        tone = self.controller.tone
+        for p in self.points:
+            rate = p.get("success_rate")
+            ci = p.get("confidence_interval")
+            if rate is not None:
+                ci_part = f" [{ci[0]:.0%}-{ci[1]:.0%}]" if ci else ""
+                rate_text = f"{rate:.1%}{ci_part}"
+                rate_tone = (
+                    tone("success")
+                    if rate == 1.0
+                    else tone("error")
+                    if rate == 0.0
+                    else tone("warning")
+                )
+            else:
+                rate_text = "n/a"
+                rate_tone = ""
+
+            metric_val = p.get(self.metric)
+            metric_text = f"{metric_val:.2f}" if metric_val is not None else "n/a"
+
+            samples_text = f"{p.get('scored', 0)}/{p.get('samples', 0)}"
+            cov = p.get("coverage")
+            cov_text = f"{cov:.0%}" if cov is not None else "n/a"
+            if p.get("incomplete"):
+                cov_text += " (inc)"
+
+            timing_comparable = p.get("timing_comparable")
+            timing_text = "comparable" if timing_comparable else "incompatible"
+            timing_tone = tone("success") if timing_comparable else tone("warning")
+
+            table.add_row(
+                Text(str(p.get("run_id", ""))[:12]),
+                Text(str(p.get("target", ""))),
+                Text(str(p.get("target_kind", ""))),
+                Text(str(p.get("benchmark", ""))),
+                Text(rate_text, style=rate_tone),
+                Text(metric_text),
+                Text(samples_text),
+                Text(cov_text),
+                Text(timing_text, style=timing_tone),
+                key=f"{p.get('run_id')}_{p.get('target')}_{p.get('benchmark')}",
+            )
+
+        if 0 <= previous_row < len(self.points):
+            table.move_cursor(row=previous_row)
+
+        self.controller.update_status(
+            context=f"{len(self.runs)} runs",
+            view=f"metric {self.metric}",
+            filter=f"points {total_pts}" if total_pts else "no matches",
+            clock=None,
+            hint="v: toggle view  e: export  esc: back",
+        )
+        self.show_details()
+
+    def selected_point(self) -> dict[str, Any] | None:
+        table = self.query_one("#compare-table", DataTable)
+        row = table.cursor_row
+        return self.points[row] if 0 <= row < len(self.points) else None
+
+    def show_details(self) -> None:
+        p = self.selected_point()
+        if not p:
+            self.query_one("#compare-detail", Static).update(Text(""))
+            return
+        lines = [
+            f"Run: {p['run_id']} · Target: {p['target']} ({p['target_kind']})"
+            f" · Benchmark: {p['benchmark']}"
+        ]
+        ci = p.get("confidence_interval")
+        ci_str = f"[{ci[0]:.1%}, {ci[1]:.1%}]" if ci else "n/a"
+        rate_str = f"{p['success_rate']:.1%}" if p.get("success_rate") is not None else "n/a"
+        lines.append(f"Success rate: {rate_str} · Wilson 95% CI: {ci_str}")
+        dur_str = (
+            f"{p['task_duration_s']:.2f}s"
+            if p.get("task_duration_s") is not None
+            else "n/a (unavailable)"
+        )
+        tok_str = f"{p['tok_s']:.2f} tok/s" if p.get("tok_s") is not None else "n/a (unavailable)"
+        lines.append(f"Task duration: {dur_str} · Throughput: {tok_str}")
+        lines.append(
+            f"Samples: {p['scored']} scored / {p['samples']} planned · Failures: {p['failures']}"
+            f" · Errors: {p['errors']} · Skipped: {p['skipped']} · Cancelled: {p['cancelled']}"
+        )
+        cov_str = f"{p['coverage']:.1%}" if p.get("coverage") is not None else "n/a"
+        lines.append(
+            f"Coverage: {cov_str} ({'incomplete coverage' if p['incomplete'] else 'complete'})"
+        )
+        if not p.get("timing_comparable"):
+            lines.append(
+                "Timing: Incompatible configuration/provenance; automatic timing verdicts disabled."
+            )
+        else:
+            lines.append("Timing: Configuration compatible for timing comparisons.")
+        self.query_one("#compare-detail", Static).update(Text("\n".join(lines)))
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self.show_details()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "compare-toggle-button":
+            self.action_toggle_view()
+        elif event.button.id == "compare-export-button":
+            self.action_export()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        val = event.value.strip()
+        if event.input.id == "compare-filter-target":
+            self.filter_target = val
+        elif event.input.id == "compare-filter-benchmark":
+            self.filter_benchmark = val
+        elif event.input.id == "compare-filter-task":
+            self.filter_task = val
+        elif event.input.id == "compare-filter-config":
+            self.filter_config = val
+        self.refresh_views()
+
+    def action_toggle_view(self) -> None:
+        self.metric = "tok_s" if self.metric == "task_duration_s" else "task_duration_s"
+        self.refresh_views()
+
+    def action_filter_target(self) -> None:
+        self.query_one("#compare-filter-target", Input).focus()
+
+    def action_export(self) -> None:
+        self.controller.show_export_comparison(self.view)
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
 
 
 class HelpScreen(ModalScreen[None]):

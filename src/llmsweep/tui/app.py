@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from rich.text import Text
 from textual import work
@@ -73,10 +73,12 @@ class SweepApp(App[int]):
         provider: Provider | None = None,
         session: RunSession | None = None,
         saved_run: RunResult | None = None,
+        comparison_runs: list[RunResult] | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings
         self.saved_run = saved_run
+        self.comparison_runs = comparison_runs
         self.provider = provider or (session.provider if session else None)
         self.session = session
         self.redact = self.provider.redact if self.provider else Redactor(settings.api_key)
@@ -95,12 +97,15 @@ class SweepApp(App[int]):
         self.apply_theme(str(self.settings.values["theme"]))
         self.set_class(self.settings.values["no_color"], "monochrome")
         self.set_interval(0.075, self.flush_events)
-        if self.saved_run:
+        if self.comparison_runs:
+            from llmsweep.tui.screens.main import ComparisonScreen
+
+            self.push_screen(ComparisonScreen(self.comparison_runs))
+        elif self.saved_run:
             self.push_screen(ResultsScreen(self.saved_run, self.settings.values["sort_by"]))
         else:
             self.push_screen(PickerScreen())
             self.call_after_refresh(self.discover_models)
-
     def apply_theme(self, name: str) -> None:
         if name not in self.available_themes:
             self.notify(f"Unknown theme {name!r}; using {THEMES[0]}", severity="warning")
@@ -391,6 +396,51 @@ class SweepApp(App[int]):
                 self.session.baseline = baseline
                 self.session.persist()
         await self.push_screen_wait(DiffScreen(run.comparisons))
+
+    @work(exit_on_error=False, exclusive=False, group="dialogs", description="Compare runs")
+    async def show_comparison(self) -> None:
+        run = self.saved_run or (self.session.run if self.session else None)
+        if run is None:
+            return
+        runs = [run]
+        if self.settings.values.get("baseline"):
+            path = Path(str(self.settings.values["baseline"]))
+            exists = await asyncio.to_thread(path.exists)
+            if exists:
+                baseline = await asyncio.to_thread(load_run, path)
+                runs.append(baseline)
+        from llmsweep.tui.screens.main import ComparisonScreen
+
+        await self.push_screen_wait(ComparisonScreen(runs))
+
+    @work(exit_on_error=False, exclusive=False, group="dialogs", description="Export comparison")
+    async def show_export_comparison(self, view: dict[str, Any]) -> None:
+        directory = (
+            self.session.store.directory(self.saved_run)
+            if (self.session and self.saved_run)
+            else Path.cwd()
+        )
+        value = await self.push_screen_wait(
+            PathDialog(
+                "Export comparison path (.json, .csv, or .md)", str(directory / "comparison.md")
+            )
+        )
+        if not value:
+            return
+        path = Path(value)
+        if path.suffix not in (".json", ".csv", ".md", ".markdown"):
+            self.notify("Use a .json, .csv, or .md extension", severity="error")
+            return
+        from llmsweep.comparison import export_comparison
+
+        export_comparison(
+            view,
+            json_path=path if path.suffix == ".json" else None,
+            csv_path=path if path.suffix == ".csv" else None,
+            markdown_path=path if path.suffix in (".md", ".markdown") else None,
+            redact=self.redact,
+        )
+        self.notify(f"Exported {path}")
 
     @work(exit_on_error=False, exclusive=False, group="dialogs", description="Export results")
     async def show_export(self) -> None:

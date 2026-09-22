@@ -88,6 +88,17 @@ ModelCard:focus { background: $surface-lighten-1; border-title-style: bold rever
     color: $text-muted;
 }
 
+/* ── Comparison ─────────────────────────────────────────────────────────── */
+#compare-filter-bar { height: 3; margin: 0 1; }
+#compare-filter-bar Input { width: 1fr; margin: 0 1; }
+#compare-toolbar { height: 3; margin: 0 2; }
+#compare-toolbar Button { margin: 0 1 0 0; }
+#compare-description { width: 1fr; height: 3; padding: 1 1 0 0; color: $text-muted; }
+#compare-content { height: 1fr; margin: 0 2; }
+#compare-plot { height: auto; min-height: 8; margin: 0 0 1 0; padding: 1 1; border: round $border; background: $surface; }
+#compare-table { height: 12; min-height: 6; margin: 0 0 1 0; border: round $border; background: $surface; }
+#compare-detail { height: auto; max-height: 8; padding: 0 1; border-top: solid $border; color: $text-muted; }
+
 /* ── Tables ─────────────────────────────────────────────────────────────── */
 DataTable > .datatable--header { background: $panel; color: $text; text-style: bold; }
 DataTable > .datatable--cursor { background: $primary 30%; color: $text; }
@@ -124,11 +135,12 @@ ModalScreen { align: center middle; background: $background 70%; }
 /* ── Monochrome (--no-color / NO_COLOR) ─────────────────────────────────── */
 .monochrome Screen, .monochrome Screen * { color: white; background: black; border: none; }
 .monochrome ModelCard, .monochrome .dialog, .monochrome .path-dialog, .monochrome Input,
-.monochrome #model-picker, .monochrome #results-table, .monochrome #verbose-log {
+.monochrome #model-picker, .monochrome #results-table, .monochrome #verbose-log,
+.monochrome #compare-plot, .monochrome #compare-table {
     border: round white;
     border-title-color: white;
 }
-.monochrome #results-detail { border-top: solid white; }
+.monochrome #results-detail, .monochrome #compare-detail { border-top: solid white; }
 .monochrome DataTable > .datatable--header { text-style: bold underline; }
 .monochrome DataTable > .datatable--cursor { background: white; color: black; }
 .monochrome Sparkline > .sparkline--max-color { color: white; }
