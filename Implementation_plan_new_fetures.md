@@ -2,7 +2,7 @@
 
 **Status:** In progress (September 22, 2026).
 
-**Out of scope:** Feature 8 (OpenAI, Ollama, and Codex adapters) — not planned for this expansion.
+**Out of scope:** OpenAI, Ollama, and Codex adapters; Failure Analysis and Targeted Reruns; Checkpoint and Resume — not planned for this expansion. Previously shipped capabilities listed below remain historical context.
 
 **Already shipped:** Schema 2 and schema-1 read compatibility; task/attempt identities and fingerprints; named profiles; benchmark registry and five built-in suites (`code-edge`, `constraint-plan`, `knowledge-cal`, `multi-file`, `repo-issue`); pack validation and `benchmarks` commands; presets (`quick-check`, `coding-quality`, `full-evaluation`); Wilson/bootstrap statistics and exploratory repeats; schedule, writer lock, `resume`/`rerun`; failure categories and evidence artifacts; comparison eligibility (`compare_checked`); partial `setup` CLI/TUI.
 
@@ -67,25 +67,17 @@
 
 **Acceptance criteria:** Extra repeats cannot erase earlier failures; reports disclose denominators and confidence methods; renderers perform no statistical calculations.
 
-## 6. Failure Analysis and Targeted Reruns
+## 6. Benchmark Coverage and Results Dashboard
 
-**Goal:** Explain unsuccessful attempts and rerun only the samples needed for investigation.
-
-### Remaining
-
-- [ ] Transcript inspection with failure filters and lazily loaded evidence in the TUI.
-- [ ] TUI targeted-rerun action wired to diagnostic child runs.
-- [ ] Tests for child-run lineage and diagnostic exclusion from untouched comparisons.
-
-**Acceptance criteria:** Evidence remains available after workspace cleanup; reruns never overwrite original results; incorrect solutions remain distinguishable from infrastructure failures.
-
-## 7. Checkpoint and Resume
-
-**Goal:** Continue interrupted evaluations without repeating finished work or losing evidence.
+**Goal:** Show where each model performs well and which benchmarks still lack enough results to evaluate.
 
 ### Remaining
 
-- [ ] Simulated interruption tests around every commit boundary (evidence, manifest, lock).
-- [ ] Documentation for resume prerequisites, fingerprint rejection, and attempt lineage.
+- [ ] Model-by-benchmark results matrix in the TUI, showing success rate, completed sample count, and coverage against the selected run's planned samples.
+- [ ] Filters for saved run, model, benchmark category, and configuration; keep incompatible task sets and configurations separate.
+- [ ] Keyboard-accessible cell details showing task-level scores, sample counts, and completed / failed / skipped / cancelled outcomes without requiring transcript inspection.
+- [ ] Distinct labels for unrun tasks, incomplete coverage, and unavailable scores; provide a plain table equivalent and avoid relying on color alone.
+- [ ] Export the displayed results matrix and coverage data through JSON, CSV, and Markdown using shared computed view data.
+- [ ] Offline fixture and Pilot tests for mixed outcomes, empty history, filtering, keyboard navigation, and small terminals.
 
-**Acceptance criteria:** Interruptions cause no lost committed evidence or duplicate completed samples; concurrent resume is rejected; changed fingerprints block execution.
+**Acceptance criteria:** Users can identify model strengths and coverage gaps from saved results without an inference server; missing results never appear as zero scores; denominators and outcome labels are explicit; matrix, details, and exports agree; calculations live outside renderers.
