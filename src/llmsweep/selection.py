@@ -7,7 +7,16 @@ import re
 from .errors import SelectionError
 from .models import ModelInfo, ModelRef, parse_ref
 
-SCENARIOS = ("weather", "agent-code", "codegen")
+SCENARIOS = (
+    "weather",
+    "agent-code",
+    "codegen",
+    "code-edge",
+    "multi-file",
+    "repo-issue",
+    "constraint-plan",
+    "knowledge-cal",
+)
 INDEX = re.compile(r"\d+(?:-\d+)?\Z")
 
 

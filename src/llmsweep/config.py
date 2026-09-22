@@ -45,12 +45,27 @@ DEFAULTS: dict[str, Any] = {
     "transcript_dir": None,
     "fail_on_regression": False,
     "baseline": None,
+    "profile": None,
+    "preset": None,
+    "pack": None,
+    "repeat_mode": "fixed",
+    "min_repeats": 1,
+    "max_repeats": None,
+    "precision": None,
+    "time_cap_s": None,
+    "token_cap": None,
+    "temperature": 0,
+    "seed": None,
+    "context_limit": None,
+    "tasks": None,
 }
 PROVIDER_KEYS = {"base_url", "host", "port", "api_key_env", "timeout", "load_timeout"}
 THRESHOLDS = {"tok_s_regression_pct": 5.0, "ttft_regression_pct": 5.0}
 BOOLEAN_KEYS = {key for key, value in DEFAULTS.items() if isinstance(value, bool)}
-INTEGER_KEYS = {"port", "repeat", "max_tokens", "max_turns", "parallel"}
+INTEGER_KEYS = {"port", "repeat", "max_tokens", "max_turns", "parallel", "min_repeats"}
+OPTIONAL_INTS = {"max_repeats", "seed", "token_cap", "context_limit"}
 FLOAT_KEYS = {"timeout", "load_timeout"}
+OPTIONAL_FLOATS = {"precision", "time_cap_s", "temperature"}
 
 
 @dataclass(frozen=True)
@@ -73,6 +88,19 @@ class Settings:
             v["keep_loaded"],
             v["parallel"],
             v["task"],
+            preset=v["preset"],
+            pack=v["pack"],
+            profile=v["profile"],
+            repeat_mode=v["repeat_mode"],
+            min_repeats=v["min_repeats"],
+            max_repeats=v["max_repeats"],
+            precision=v["precision"],
+            time_cap_s=v["time_cap_s"],
+            token_cap=v["token_cap"],
+            temperature=v["temperature"],
+            seed=v["seed"],
+            context_limit=v["context_limit"],
+            tasks=v["tasks"],
         )
 
 
@@ -132,6 +160,17 @@ def resolve_config(
             data, limits = _read(path)
             values.update(data)
             thresholds.update(limits)
+    profile_name = cli.get("profile") or env.get("LLMSWEEP_PROFILE") or values.get("profile")
+    if profile_name:
+        from .profiles import load_profile_file, resolve_profile_path
+
+        profile_path = resolve_profile_path(
+            str(profile_name),
+            project_dir or Path.cwd(),
+            user_dir or user_config_path("llmsweep", appauthor=False),
+        )
+        values.update(load_profile_file(profile_path))
+        values["profile"] = str(profile_name)
     for key in DEFAULTS:
         variable = "LLMSWEEP_" + key.upper()
         if variable not in env:
@@ -142,9 +181,9 @@ def resolve_config(
                 if raw.lower() not in ("1", "0", "true", "false", "yes", "no"):
                     raise ValueError
                 value: Any = raw.lower() in ("1", "true", "yes")
-            elif key in INTEGER_KEYS:
+            elif key in INTEGER_KEYS or key in OPTIONAL_INTS:
                 value = int(raw)
-            elif key in FLOAT_KEYS:
+            elif key in FLOAT_KEYS or key in OPTIONAL_FLOATS:
                 value = float(raw)
             else:
                 value = raw
@@ -177,10 +216,35 @@ def resolve_config(
             raise ConfigError(f"{key} must be a finite positive number")
     if values["load_timeout"] > 600:
         raise ConfigError("load_timeout cannot exceed 600 seconds")
+    for key in OPTIONAL_INTS:
+        value = values[key]
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ConfigError(f"{key} must be a non-negative integer")
+        if key != "seed" and value < 1:
+            raise ConfigError(f"{key} must be a positive integer")
+    for key in OPTIONAL_FLOATS:
+        value = values[key]
+        if value is None:
+            continue
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise ConfigError(f"{key} must be a finite number")
+        if key == "temperature" and value < 0:
+            raise ConfigError("temperature must be non-negative")
+        if key != "temperature" and value <= 0:
+            raise ConfigError(f"{key} must be positive")
+    if values["repeat_mode"] not in ("fixed", "exploratory"):
+        raise ConfigError("repeat_mode must be fixed or exploratory")
     for key in BOOLEAN_KEYS:
         if not isinstance(values[key], bool):
             raise ConfigError(f"{key} must be a boolean")
-    for key in set(DEFAULTS) - INTEGER_KEYS - FLOAT_KEYS - BOOLEAN_KEYS:
+    numeric = INTEGER_KEYS | FLOAT_KEYS | BOOLEAN_KEYS | OPTIONAL_INTS | OPTIONAL_FLOATS
+    for key in set(DEFAULTS) - numeric:
         if values[key] is not None and not isinstance(values[key], (str, Path)):
             raise ConfigError(f"{key} must be text")
     if cli.get("base_url") and (cli.get("host") is not None or cli.get("port") is not None):
@@ -213,11 +277,23 @@ def resolve_config(
         raise ConfigError("unsupported sort; LM Studio has no cost metric")
     if values["models"] and values["all"]:
         raise ConfigError("--models and --all are mutually exclusive")
+    if cli.get("preset") and cli.get("scenarios"):
+        raise ConfigError("--preset and --scenarios are ambiguous")
+    if cli.get("pack") and (cli.get("preset") or cli.get("scenarios")):
+        raise ConfigError("--pack cannot be combined with --preset or --scenarios")
+    if values["preset"] and cli.get("scenarios") is None and not values["pack"]:
+        from .benchmarks.presets import format_tasks, get_preset
+
+        preset = get_preset(str(values["preset"]))
+        values["scenarios"] = ",".join(preset.scenarios)
+        if cli.get("tasks") is None:
+            values["tasks"] = format_tasks(preset) or None
     if values["task"] is not None:
         if cli.get("scenarios") not in (None, "weather"):
             raise ConfigError("--task is only supported with the weather scenario")
         values["scenarios"] = "weather"
-    resolve_scenarios(values["scenarios"])
+    if not values["pack"]:
+        resolve_scenarios(values["scenarios"])
     key_name = values["api_key_env"]
     api_key = (
         cli.get("api_key")

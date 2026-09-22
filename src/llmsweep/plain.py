@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -131,6 +132,15 @@ def render_run(run: RunResult, stream: TextIO, sort_by: str = "order") -> None:
             f"\t{comparison.get('reason') or ''}",
             file=stream,
         )
+    if run.statistics:
+        print(
+            "STATISTICS\t"
+            + display(run.statistics.get("label") or "stored")
+            + "\t"
+            + display(run.statistics.get("reason")),
+            file=stream,
+        )
+        print(json.dumps(run.statistics, sort_keys=True), file=stream)
 
 
 def csv_report(run: RunResult) -> str:
@@ -157,6 +167,12 @@ def csv_report(run: RunResult) -> str:
         "tool_errors",
         "contended",
         "error",
+        "task_id",
+        "attempt_id",
+        "failure_category",
+        "pack_id",
+        "content_digest",
+        "diagnostic",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fields)
     writer.writeheader()
@@ -183,6 +199,12 @@ def csv_report(run: RunResult) -> str:
                 "expected_tools": ",".join(sample.expected_tools) if sample else "",
                 "tool_errors": "; ".join(sample.tool_errors) if sample else "",
                 "error": (sample.error if sample else None) or model.error,
+                "task_id": sample.task_id if sample else "",
+                "attempt_id": sample.attempt_id if sample else "",
+                "failure_category": sample.failure_category if sample else "",
+                "pack_id": sample.pack_id if sample else "",
+                "content_digest": sample.content_digest if sample else "",
+                "diagnostic": sample.diagnostic if sample else False,
             }
             for field in ("output_tokens", "total_tokens", "reasoning_tokens"):
                 values = [getattr(t, field) for t in sample.turns] if sample else []

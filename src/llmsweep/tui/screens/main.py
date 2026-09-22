@@ -73,6 +73,7 @@ class PickerScreen(SweepScreen):
         Binding("t", "tools", "Tools only"),
         Binding("e", "strict", "Known chat types"),
         Binding("ctrl+r", "run", "Run selected"),
+        Binding("g", "guided_setup", "Guided setup"),
         Binding("escape", "focus_table", "", show=False),
     ]
 
@@ -102,6 +103,9 @@ class PickerScreen(SweepScreen):
             yield Button("Run selected", id="run-selected", variant="primary")
         yield StatusBar()
         yield Footer()
+
+    def action_guided_setup(self) -> None:
+        self.app.push_screen(SetupScreen())
 
     def on_mount(self) -> None:
         self.query_one("#model-search", Input).border_title = "Search  /"
@@ -695,3 +699,22 @@ class DiffScreen(ModalScreen[None]):
                     f"\n{row.get('reason') or ''}",
                 )
             )
+
+
+class SetupScreen(Screen[None]):
+    """Review the resolved preset and execution policy before a run starts."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "back", "Back")]
+
+    def compose(self) -> ComposeResult:
+        yield Static("", id="setup-plan", markup=False)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        from llmsweep.benchmarks.presets import plan_report
+
+        app = cast("SweepApp", self.app)
+        self.query_one("#setup-plan", Static).update(plan_report(app.settings.values))
+
+    def action_back(self) -> None:
+        self.app.pop_screen()

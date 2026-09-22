@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add schema 2 run documents, named profiles, pack validation, and comparison
+  eligibility while still opening schema 1 runs. New suites are opt-in:
+  code-edge, constraint-plan, knowledge-cal, multi-file, and repo-issue.
+- Add `benchmarks`, `profiles`, `setup`, `resume`, `rerun`, and `compare`.
+  OpenAI, Ollama, and Codex adapters are not included.
 - Restyle the Textual UI on theme variables: title bar with the endpoint or run ID, a
   persistent status bar, status-colored model cards with a metrics strip, zebra tables,
   a marked sort column, and consistent dialog framing; monochrome mode keeps borders.

@@ -15,8 +15,16 @@ Top-level `--list` and `--show PATH` are compatibility aliases. Use
 | `list` | List eligible chat models, largest parameter count first. |
 | `show PATH` | Open a run directory or `run.json` offline; `--plain` prints tables. |
 | `export PATH --json FILE --csv FILE --markdown FILE` | Export one or more formats offline. |
-| `doctor` | Check discovery, authentication, API version, and store writability without chat. |
+| `doctor` | Check discovery, authentication, API version, store writability, and execution policy without chat. |
 | `providers` | Show the supported provider: `lmstudio`. |
+| `benchmarks list` | List built-in suites, task counts, and execution kind. Offline. |
+| `benchmarks inspect NAME` | List task ids and content digests for one suite. |
+| `benchmarks validate PATH` | Check a local pack manifest and fixture hashes. Packs are never auto-loaded. |
+| `profiles list` / `show` / `save NAME --from-run PATH` | Named non-secret run profiles. |
+| `setup` | Print the resolved preset, task count, isolation preflight, and `eta unknown`. |
+| `resume PATH` | Continue a schema-2 run after checking its fingerprint. |
+| `rerun PATH --sample ID` | Start a diagnostic child run for one saved sample. |
+| `compare PATH PATH` | Print comparison eligibility. Schema 1 runs keep the original metric comparison. |
 
 ### Subcommand Details
 

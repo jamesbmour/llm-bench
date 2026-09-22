@@ -23,6 +23,7 @@ __all__ = [
     "ModelUnloadError",
     "ProviderError",
     "RequestTimeoutError",
+    "ResumeError",
     "SchemaVersionError",
     "SelectionError",
     "StoreCorruptError",
@@ -165,3 +166,7 @@ class SchemaVersionError(StoreError):
 
 class StoreCorruptError(StoreError):
     """A stored document could not be parsed."""
+
+
+class ResumeError(StoreError):
+    """A saved run can be viewed but cannot be resumed safely."""

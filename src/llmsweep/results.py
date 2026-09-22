@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import copy
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 from .metrics import TurnMetrics, pooled_throughput, regression_pct, summarize
@@ -27,6 +28,22 @@ class SampleResult:
     total_s: float = 0
     error: str | None = None
     transcript: str | None = None
+    pack_id: str = ""
+    pack_version: str = ""
+    suite_id: str = ""
+    task_id: str = ""
+    content_digest: str | None = None
+    attempt_id: str = ""
+    attempt: int = 1
+    parent_attempt_id: str | None = None
+    target_kind: str = "model"
+    failure_category: str | None = None
+    evidence: list[str] = field(default_factory=list)
+    assertions: list[dict[str, Any]] = field(default_factory=list)
+    diagnostic: bool = False
+    checker_s: float | None = None
+    tool_s: float | None = None
+    artifact_blobs: dict[str, str] = field(default_factory=dict)
 
     @property
     def tok_s(self) -> float | None:
@@ -66,6 +83,8 @@ class ModelResult:
     error_code: int = 1
     warnings: list[str] = field(default_factory=list)
     contended: bool = False
+    observed: dict[str, Any] = field(default_factory=dict)
+    target_kind: str = "model"
 
     def rollups(self) -> dict[str, Any]:
         result = {}
@@ -131,13 +150,30 @@ class RunResult:
     status: str = "running"
     schema_version: int = 1
     comparisons: list[dict[str, Any]] = field(default_factory=list)
+    provenance: dict[str, Any] | None = None
+    schedule: list[dict[str, Any]] | None = None
+    fingerprint: str | None = None
+    parent_run_id: str | None = None
+    repeat_policy: dict[str, Any] = field(default_factory=dict)
+    diagnostic: bool = False
+    statistics: dict[str, Any] | None = None
+    task_manifest: list[dict[str, Any]] | None = None
 
     def document(self) -> dict[str, Any]:
         document = asdict(self)
         document["models"] = [
             asdict(model)
             | model.summary()
-            | {"samples": [asdict(sample) | sample.summary() for sample in model.samples]}
+            | {
+                "samples": [
+                    {
+                        key: value
+                        for key, value in (asdict(sample) | sample.summary()).items()
+                        if key != "artifact_blobs"
+                    }
+                    for sample in model.samples
+                ]
+            }
             for model in self.models
         ]
         return document
@@ -153,44 +189,63 @@ class RunResult:
         return 0
 
 
+def _take(cls: type[Any], raw: dict[str, Any]) -> dict[str, Any]:
+    names = {item.name for item in fields(cls)}
+    return {key: value for key, value in raw.items() if key in names}
+
+
+def migrate_v1(raw: dict[str, Any]) -> dict[str, Any]:
+    """Annotate a schema-1 document in memory. Does not invent digests or a resume schedule."""
+    if raw.get("schema_version") != 1:
+        return raw
+    document = copy.deepcopy(raw)
+    for model in document.get("models", []):
+        if not isinstance(model, dict):
+            continue
+        for sample in model.get("samples", []):
+            if not isinstance(sample, dict):
+                continue
+            scenario = str(sample.get("scenario", ""))
+            repeat = sample.get("repeat", 0)
+            sample.setdefault("pack_id", "legacy")
+            sample.setdefault("pack_version", "1")
+            sample.setdefault("suite_id", scenario)
+            sample.setdefault("task_id", scenario)
+            sample.setdefault("content_digest", None)
+            sample.setdefault("attempt_id", f"legacy-{scenario}-r{repeat}")
+            sample.setdefault("attempt", 1)
+            sample.setdefault("target_kind", "model")
+    document.setdefault("provenance", None)
+    document.setdefault("schedule", None)
+    document.setdefault("fingerprint", None)
+    return document
+
+
 def restore_run(raw: dict[str, Any]) -> RunResult:
+    document = migrate_v1(raw) if raw.get("schema_version") == 1 else raw
     models = []
-    for row in raw["models"]:
+    for row in document["models"]:
         metadata = dict(row["model"])
         metadata["ref"] = ModelRef(**metadata["ref"])
         metadata["instances"] = tuple(metadata.get("instances", []))
         samples = []
         for sample in row.get("samples", []):
-            values = dict(sample)
-            for derived in ("tok_s", "ttft_ms", "output_tokens", "token_sources", "token_source"):
-                values.pop(derived, None)
-            values["turns"] = [TurnMetrics(**turn) for turn in values["turns"]]
+            values = _take(SampleResult, sample)
+            turn_fields = {item.name for item in fields(TurnMetrics)}
+            values["turns"] = [
+                TurnMetrics(**{key: value for key, value in turn.items() if key in turn_fields})
+                for turn in values.get("turns", [])
+            ]
             samples.append(SampleResult(**values))
-        names = (
-            "status",
-            "load_s",
-            "load_status",
-            "warmup_s",
-            "total_s",
-            "error",
-            "error_code",
-            "warnings",
-            "contended",
-        )
+        payload = _take(ModelResult, row)
+        payload.pop("model", None)
+        payload.pop("samples", None)
         models.append(
-            ModelResult(
-                ModelInfo(**metadata), samples=samples, **{n: row[n] for n in names if n in row}
-            )
+            ModelResult(ModelInfo(**_take(ModelInfo, metadata)), samples=samples, **payload)
         )
-    return RunResult(
-        raw["run_id"],
-        raw["started_at"],
-        raw["settings"],
-        models,
-        raw.get("status", "completed"),
-        raw["schema_version"],
-        raw.get("comparisons", []),
-    )
+    payload = _take(RunResult, document)
+    payload["models"] = models
+    return RunResult(**payload)
 
 
 def compare_runs(

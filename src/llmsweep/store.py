@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from platformdirs import user_data_path
 
-from .errors import SchemaVersionError, StoreCorruptError, StoreError
+from .errors import ResumeError, SchemaVersionError, StoreCorruptError, StoreError
 from .models import ModelRef
 from .results import RunResult, SampleResult, restore_run
 from .security import Redactor
@@ -44,10 +44,45 @@ def atomic_write(path: Path, text: str) -> None:
             Path(temporary).unlink(missing_ok=True)
 
 
-def transcript_name(ref: ModelRef, scenario: str, repeat: int) -> str:
+def transcript_name(
+    ref: ModelRef, scenario: str, repeat: int, *, task_id: str = "", attempt_id: str = ""
+) -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]", "_", ref.id)[:70]
     digest = hashlib.sha256(ref.key.encode()).hexdigest()[:16]
-    return f"{ref.provider}_{slug}-{digest}_{scenario}_r{repeat}.json"
+    suffix = ""
+    if task_id or attempt_id:
+        extra = hashlib.sha256(f"{task_id}\0{attempt_id}".encode()).hexdigest()[:12]
+        suffix = f"_{extra}"
+    return f"{ref.provider}_{slug}-{digest}_{scenario}_r{repeat}{suffix}.json"
+
+
+class RunLock:
+    """Exclusive writer lock for one run directory."""
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self._handle: Any = None
+
+    def acquire(self) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        handle = (self.directory / ".writer.lock").open("a+")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            handle.close()
+            raise ResumeError(f"run is locked by another writer: {self.directory}") from exc
+        self._handle = handle
+
+    def release(self) -> None:
+        handle = self._handle
+        self._handle = None
+        if handle is None:
+            return
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+    def __del__(self) -> None:
+        self.release()
 
 
 class RunStore:
@@ -71,6 +106,7 @@ class RunStore:
             run_id or f"{now:%Y%m%dT%H%M%S%fZ}-{uuid4().hex[:8]}",
             started_at or now.isoformat(),
             settings,
+            schema_version=2,
         )
 
     def directory(self, run: RunResult) -> Path:
@@ -80,7 +116,23 @@ class RunStore:
         directory = self.directory(run)
         for model in run.models:
             for sample in model.samples:
-                name = transcript_name(model.model.ref, sample.scenario, sample.repeat)
+                if sample.artifact_blobs:
+                    folder = re.sub(r"[^A-Za-z0-9_.-]", "_", sample.attempt_id or "sample")[:40]
+                    paths: list[str] = []
+                    for name, text in sample.artifact_blobs.items():
+                        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:80]
+                        relative = f"evidence/{folder}/{safe}"
+                        atomic_write(directory / relative, self.redact(text))
+                        paths.append(relative)
+                    sample.evidence = paths
+                    sample.artifact_blobs = {}
+                name = transcript_name(
+                    model.model.ref,
+                    sample.scenario,
+                    sample.repeat,
+                    task_id=sample.task_id,
+                    attempt_id=sample.attempt_id,
+                )
                 sample.transcript = f"transcripts/{name}"
                 data = {
                     "provider": model.model.ref.provider,
@@ -137,6 +189,34 @@ class RunStore:
             return None
         return None
 
+    def estimate_range(
+        self, refs: list[ModelRef], settings: dict[str, Any]
+    ) -> tuple[float, float] | None:
+        path = self.root / "index.json"
+        if not path.exists():
+            return None
+        keys = ("scenarios", "repeat", "max_tokens", "max_turns", "no_warmup", "task")
+        totals: list[float] = []
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+            wanted = {ref.key for ref in refs}
+            for row in rows:
+                run = load_run(self.root / "runs" / row["run_id"])
+                if any(run.settings.get(key) != settings.get(key) for key in keys):
+                    continue
+                matched = [
+                    model.total_s
+                    for model in run.models
+                    if model.status == "completed" and model.model.ref.key in wanted
+                ]
+                if matched:
+                    totals.append(sum(matched))
+        except (OSError, ValueError, KeyError, TypeError, StoreError):
+            return None
+        if not totals:
+            return None
+        return (min(totals), max(totals))
+
 
 def load_run(path: Path) -> RunResult:
     if path.is_dir():
@@ -146,9 +226,11 @@ def load_run(path: Path) -> RunResult:
         if not isinstance(raw, dict):
             raise ValueError("expected a run object")
         version = raw.get("schema_version")
-        # v1 is the first published schema; unversioned reference files have no safe migration.
-        if version != 1 or isinstance(version, bool):
-            raise SchemaVersionError(f"unsupported schema_version {version!r}; this build reads 1")
+        # Schema 1 migrates in memory. The original file is left untouched.
+        if version not in (1, 2) or isinstance(version, bool):
+            raise SchemaVersionError(
+                f"unsupported schema_version {version!r}; this build reads 1 and 2"
+            )
         run = restore_run(raw)
         if not re.fullmatch(r"[A-Za-z0-9_-]+", run.run_id):
             raise ValueError("invalid run_id")

@@ -1,0 +1,17 @@
+schema = 1
+id = "minimal"
+version = "1"
+description = "One tool-free exact-match task for pack validation."
+
+[[tasks]]
+id = "hello"
+suite = "minimal"
+prompt = "Reply with the single word ok."
+evaluator = "exact"
+expected = "ok"
+category = "custom"
+difficulty = "easy"
+partition = "eval"
+max_turns = 1
+max_tokens = 32
+task_seconds = 30

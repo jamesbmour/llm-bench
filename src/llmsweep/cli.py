@@ -9,6 +9,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from .config import Settings, resolve_config
 from .errors import AuthenticationError, ConfigError, LlmsweepError
@@ -20,7 +21,20 @@ from .security import Redactor
 from .selection import filter_models, resolve_selection
 from .store import RunStore, load_run
 
-COMMANDS = ("run", "list", "show", "export", "doctor", "providers")
+COMMANDS = (
+    "run",
+    "list",
+    "show",
+    "export",
+    "doctor",
+    "providers",
+    "benchmarks",
+    "profiles",
+    "resume",
+    "rerun",
+    "compare",
+    "setup",
+)
 
 
 def wants_tui(plain: bool = False) -> bool:
@@ -38,7 +52,10 @@ def parser() -> argparse.ArgumentParser:
         prog="llmsweep", description="LM Studio benchmarks and saved-run viewer"
     )
     subcommands = root.add_subparsers(dest="command", required=True)
+    catalog = {"benchmarks", "profiles", "resume", "rerun", "compare"}
     for name in COMMANDS:
+        if name in catalog:
+            continue
         command = subcommands.add_parser(name)
         command.add_argument("--config", type=Path)
         command.add_argument("--run-store", type=Path)
@@ -89,7 +106,59 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--verbose", action="store_true", default=None)
             command.add_argument("--transcript-dir", type=Path)
             command.add_argument("--parallel", type=int)
+            command.add_argument("--preset")
+            command.add_argument("--profile")
+            command.add_argument("--pack")
+            command.add_argument("--tasks")
+            command.add_argument("--repeat-mode", choices=["fixed", "exploratory"])
+            command.add_argument("--min-repeats", type=int)
+            command.add_argument("--max-repeats", type=int)
+            command.add_argument("--precision", type=float)
+            command.add_argument("--time-cap", dest="time_cap_s", type=float)
+            command.add_argument("--token-cap", type=int)
+            command.add_argument("--temperature", type=float)
+            command.add_argument("--seed", type=int)
+            command.add_argument("--context-limit", type=int)
+        if name == "setup":
+            command.add_argument("--preset")
+            command.add_argument("--profile")
+            command.add_argument("--scenarios")
+            command.add_argument("--tasks")
+            command.add_argument("--pack")
+    _catalog_commands(subcommands)
     return root
+
+
+def _catalog_commands(subcommands: Any) -> None:
+    benchmarks = subcommands.add_parser("benchmarks")
+    benchmark_actions = benchmarks.add_subparsers(dest="action", required=True)
+    benchmark_actions.add_parser("list")
+    inspect = benchmark_actions.add_parser("inspect")
+    inspect.add_argument("name")
+    validate = benchmark_actions.add_parser("validate")
+    validate.add_argument("path", type=Path)
+    profiles = subcommands.add_parser("profiles")
+    profile_actions = profiles.add_subparsers(dest="action", required=True)
+    profile_actions.add_parser("list")
+    show = profile_actions.add_parser("show")
+    show.add_argument("name")
+    save = profile_actions.add_parser("save")
+    save.add_argument("name")
+    save.add_argument("--from-run", type=Path, required=True)
+    resume = subcommands.add_parser("resume")
+    resume.add_argument("path", type=Path)
+    resume.add_argument("--plain", action="store_true", default=None)
+    resume.add_argument("--run-store", type=Path)
+    rerun = subcommands.add_parser("rerun")
+    rerun.add_argument("path", type=Path)
+    rerun.add_argument("--sample", required=True)
+    rerun.add_argument("--plain", action="store_true", default=None)
+    rerun.add_argument("--models")
+    rerun.add_argument("--all", action="store_true", default=None)
+    rerun.add_argument("--run-store", type=Path)
+    compare = subcommands.add_parser("compare")
+    compare.add_argument("paths", nargs=2, type=Path)
+    compare.add_argument("--plain", action="store_true", default=None)
 
 
 def normalize_argv(argv: list[str]) -> list[str]:
@@ -160,11 +229,18 @@ async def online(args: argparse.Namespace, settings: Settings) -> int:
                 ancestor = ancestor.parent
             if not os.access(ancestor, os.W_OK):
                 raise ConfigError(f"run store is not writable: {directory}")
+            from .execution.policy import isolated_policy, workflow_policy
+
+            isolation = isolated_policy()
             print(
                 f"LM Studio {provider.version}: reachable; "
                 f"{len(models)} chat models; store writable"
             )
+            isolated = f"available via {isolation.detail}" if isolation.available else "unavailable"
+            print(f"execution: {workflow_policy().name} available; isolated {isolated}")
             return 0
+        if args.command in ("resume", "rerun"):
+            return await _continue(args, settings, provider, models)
         if args.command == "list":
             selected = resolve_selection(v["models"], models) if v["models"] else models
             buffer = io.StringIO()
@@ -198,6 +274,127 @@ async def online(args: argparse.Namespace, settings: Settings) -> int:
         await provider.close()
 
 
+def _local(args: argparse.Namespace, settings: Settings) -> int:
+    if args.command == "benchmarks":
+        from .benchmarks.registry import get_suite, suites
+        from .packs import load_pack
+
+        if args.action == "list":
+            for suite in suites().values():
+                tools = "yes" if suite.requires_tools else "no"
+                print(
+                    f"{suite.suite_id}\t{suite.task_count}\t{suite.execution}\t{tools}\t{suite.title}"
+                )
+            return 0
+        if args.action == "inspect":
+            suite = get_suite(args.name)
+            print(f"{suite.suite_id}\t{suite.version}\t{suite.execution}\t{suite.title}")
+            for task in suite.tasks:
+                print(f"{task.task_id}\t{task.partition}\t{task.difficulty}\t{task.content_digest}")
+            return 0
+        pack = load_pack(args.path)
+        print(f"{pack.pack_id}\t{pack.version}\t{len(pack.tasks)}\t{pack.digest}")
+        return 0
+    if args.command == "profiles":
+        from platformdirs import user_config_path
+
+        from .profiles import list_profiles, load_profile_file, resolve_profile_path, save_profile
+
+        project = Path.cwd()
+        user = user_config_path("llmsweep", appauthor=False)
+        if args.action == "list":
+            for name in list_profiles(project, user):
+                print(name)
+            return 0
+        if args.action == "show":
+            path = resolve_profile_path(args.name, project, user)
+            for key, value in load_profile_file(path).items():
+                print(f"{key}\t{value}")
+            return 0
+        parent = load_run(args.from_run)
+        save_profile(project / "profiles" / f"{args.name}.toml", parent.settings)
+        print(project / "profiles" / f"{args.name}.toml")
+        return 0
+    if args.command == "compare":
+        from .comparison import build_views, compare_checked
+
+        current = load_run(args.paths[0])
+        baseline = load_run(args.paths[1])
+        rows = compare_checked(current, baseline, *settings.thresholds)
+        if not rows:
+            print("no overlapping samples")
+        for row in rows:
+            print(
+                "\t".join(
+                    str(row.get(key, ""))
+                    for key in ("model", "scenario", "verdict", "reason", "quality_only")
+                )
+            )
+        view = build_views([current, baseline])
+        print(f"points\t{len(view['points'])}")
+        return 0
+    from .benchmarks.presets import plan_report
+
+    print(plan_report(settings.values), end="")
+    return 0
+
+
+async def _continue(
+    args: argparse.Namespace,
+    settings: Settings,
+    provider: LMStudio,
+    models: list[Any],
+) -> int:
+    from dataclasses import replace
+
+    from .models import ModelInfo
+    from .runner import options_from_settings
+
+    parent = load_run(args.path)
+    options = options_from_settings(parent.settings)
+    store = RunStore(
+        Path(settings.values["run_store"]) if settings.values["run_store"] else None,
+        redact=provider.redact,
+    )
+    if args.command == "rerun":
+        found = next(
+            (
+                (model, sample)
+                for model in parent.models
+                for sample in model.samples
+                if args.sample in (sample.attempt_id, sample.task_id)
+            ),
+            None,
+        )
+        if found is None:
+            raise ConfigError(f"sample not found: {args.sample}")
+        owner, sample = found
+        suite = sample.suite_id or sample.scenario
+        options = replace(options, scenarios=(suite,), tasks=f"{suite}:{sample.task_id}", repeat=1)
+        session = RunSession(provider, store, options, thresholds=settings.thresholds)
+        session.run.parent_run_id = parent.run_id
+        session.run.diagnostic = True
+        wanted = {owner.model.ref.key}
+    else:
+        session = RunSession(provider, store, options, run=parent, thresholds=settings.thresholds)
+        wanted = {model.model.ref.key for model in parent.models}
+    available = {model.ref.key: model for model in models}
+    if not wanted <= set(available):
+        missing = ", ".join(sorted(wanted - set(available)))
+        raise ConfigError(f"saved models are not available: {missing}")
+    selected: list[ModelInfo] = [available[key] for key in wanted]
+    run = (
+        await session.run_all(selected)
+        if args.command == "rerun"
+        else await session.resume_all(selected)
+    )
+    buffer = io.StringIO()
+    render_run(run, buffer, settings.values["sort_by"])
+    print(provider.redact(buffer.getvalue()), end="")
+    print(f"Saved: {session.store.directory(run)}")
+    return run.exit_code(settings.values["fail_on_regression"])
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parser().parse_args(normalize_argv(list(sys.argv[1:] if argv is None else argv)))
@@ -206,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "providers":
             print("lmstudio\tlocal\tHTTP/SSE\tload/unload on v1; v0 JIT fallback")
             return 0
+        if args.command in ("benchmarks", "profiles", "compare", "setup"):
+            return _local(args, settings)
         if args.command in ("show", "export"):
             run = load_run(args.path)
             if settings.values["baseline"]:

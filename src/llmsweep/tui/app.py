@@ -330,6 +330,7 @@ class SweepApp(App[int]):
             old = self.session.result_for(ref)
             replacement = ModelResult(old.model, contended=old.contended)
             self.session.run.models[self.session.run.models.index(old)] = replacement
+            self.session.requeue_model(ref)
             self.session.run.status = "running"
             self.session.cancelled = False
             self.flush_events()
