@@ -196,7 +196,9 @@ class TaskScenario(Scenario):
         return await super().call(name, args)
 
     async def _run_script(self, script: str) -> dict[str, Any]:
-        result = await run_python(self.root, script, deadline=15)
+        # -I drops the workspace from sys.path; put it back without loading user site packages.
+        wrapped = "import sys\nsys.path.insert(0, '.')\n" + script
+        result = await run_python(self.root, wrapped, deadline=15)
         return {"passed": bool(result["passed"]), "output": str(result["output"])[-500:]}
 
     async def score(self, answer: str, called: list[str]) -> tuple[bool | None, str]:
