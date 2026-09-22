@@ -138,21 +138,30 @@ Per-milestone definition of done (from the spec): tests + `ruff check` + `mypy -
 
 Spec-mandated deliverables still missing: `CHANGELOG.md`, an `export_screenshot()` image, and macOS/Ubuntu CI for 3.11 + current stable. `docs/` is now populated (`index`, `architecture`, `scenarios`, `metrics_and_scoring`, `cli_reference`, `design_rationale_and_assumptions`) — note these describe the *finished* v1, so treat them as spec, not current behavior.
 
-## Documentation Platform (Docs7)
+## Documentation Platform (Mintlify)
 
-Documentation is managed via **Docs7** (`@upstash/docs7`) with site configuration in `docs/docs.json`.
+Documentation is managed via **Mintlify** (`mint` CLI) with site configuration in `docs/docs.json`.
 
 - **Structure**: All docs live under `docs/` with site entrypoint `docs/index.md`.
+- **Configuration**: `docs/docs.json` defines site metadata, theme, brand colors, navbar links, and navigation groups.
 - **Navigation**: Pages are registered without file extension in `docs/docs.json` under `navigation.groups`.
 - **Frontmatter**: Every documentation file must start with YAML frontmatter containing `title` and `description`.
 - **Cross-links**: Use site-relative markdown links (`/architecture`, `/scenarios`, `/metrics_and_scoring`, `/cli_reference`, `/design_rationale_and_assumptions`) rather than absolute file system URLs.
 - **Preview & Verification**:
   ```bash
-  npx @upstash/docs7 dev ./docs
-  # or
+  cd docs && mint dev
+  # or from project root
   npm run docs:dev
   ```
-- **Deployment**: `npx @upstash/docs7 deploy ./docs` or automatic deployment via Context7 GitHub integration (pointing to directory `docs`).
+- **Validation**:
+  ```bash
+  cd docs && mint validate
+  cd docs && mint broken-links
+  # or from project root
+  npm run docs:validate
+  npm run docs:broken-links
+  ```
+- **Deployment**: Connect the GitHub repository in the Mintlify dashboard (pointing to the `docs` folder) for continuous Git synchronization and automated deployments on push to `main`.
 
 ## Code Conventions & Common Patterns
 

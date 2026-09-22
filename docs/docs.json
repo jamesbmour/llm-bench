@@ -1,17 +1,20 @@
 {
-  "$schema": "https://mintlify.com/schema.json",
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
   "name": "llmsweep",
   "colors": {
     "primary": "#16A34A",
     "light": "#22C55E",
     "dark": "#15803D"
   },
-  "topbarLinks": [
-    {
-      "name": "GitHub",
-      "url": "https://github.com/jamesbmour/llm-bench"
-    }
-  ],
+  "navbar": {
+    "links": [
+      {
+        "type": "github",
+        "href": "https://github.com/jamesbmour/llm-bench"
+      }
+    ]
+  },
   "navigation": {
     "groups": [
       {

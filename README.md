@@ -646,43 +646,44 @@ uv run --extra dev ruff format
 
 ---
 
-## Documentation Platform (Docs7)
+## Documentation Platform (Mintlify)
 
-`llmsweep` documentation is powered by [Docs7](https://context7.com/docs7) (`@upstash/docs7`), located in [`docs/`](docs/).
+`llmsweep` documentation is powered by [Mintlify](https://www.mintlify.com/), located in [`docs/`](docs/).
 
 ### Preview Docs Locally
 
 To run the local documentation development server with live reload:
 
 ```bash
-# Using npx (Node.js >= 20.19)
-npx @upstash/docs7 dev ./docs
+# Using Mint CLI (Node.js >= 20.17)
+cd docs && mint dev
 
-# Or using npm script
+# Or using npm script from repository root
 npm run docs:dev
 ```
 
-Open [http://localhost:3333](http://localhost:3333) in your browser.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Deploying & Publishing
+### Quality & Validation
+
+Validate the site build and check link integrity:
 
 ```bash
-# Authenticate with Context7
-npx @upstash/docs7 login
+# Strict build validation
+cd docs && mint validate
+# Or: npm run docs:validate
 
-# Deploy production documentation
-npx @upstash/docs7 deploy ./docs
-
-# Or create a preview deployment
-npx @upstash/docs7 deploy ./docs --preview
+# Broken link detection
+cd docs && mint broken-links
+# Or: npm run docs:broken-links
 ```
 
-### Context7 / GitHub Integration
+### Mintlify / GitHub Deployment
 
-When connecting the repository in the Context7 teamspace:
-1. Select repository: `jamesbmour/llm-bench`
-2. Set the documentation folder: `docs`
-3. Production branch: `main`
+Mintlify uses a docs-as-code workflow synchronized with Git:
+1. In the [Mintlify dashboard](https://app.mintlify.com/), connect repository `jamesbmour/llm-bench`.
+2. Configure the documentation root directory as `docs`.
+3. Pushes to the `main` branch automatically trigger a deployment to `https://<subdomain>.mintlify.site`.
 
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

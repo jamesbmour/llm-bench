@@ -16,7 +16,8 @@
         ".venv": true,
         ".codegraph": true,
         ".github": true,
-        ".vscode": true
+        ".vscode": true,
+        "dist": true
     },
     "hide-files.files": [
         ".ruff_cache",
@@ -26,7 +27,8 @@
         ".venv",
         ".codegraph",
         ".github",
-        ".vscode"
+        ".vscode",
+        "dist"
     ],
     "workbench.editorAssociations": {
         "*.copilotmd": "vscode.markdown.preview.editor",

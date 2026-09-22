@@ -2,14 +2,13 @@
   "name": "llm-bench",
   "version": "1.0.0",
   "private": true,
-  "description": "Docs7 documentation platform for llmsweep",
+  "description": "Mintlify documentation platform for llmsweep",
   "scripts": {
-    "docs:dev": "docs7 dev ./docs",
-    "docs:dev:npx": "npx @upstash/docs7 dev ./docs",
-    "docs:deploy": "docs7 deploy ./docs",
-    "docs:deploy:preview": "docs7 deploy ./docs --preview"
+    "docs:dev": "cd docs && mint dev",
+    "docs:validate": "cd docs && mint validate",
+    "docs:broken-links": "cd docs && mint broken-links"
   },
   "devDependencies": {
-    "@upstash/docs7": "^0.1.10"
+    "mint": "^4.2.917"
   }
 }
