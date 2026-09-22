@@ -1,8 +1,8 @@
 # llmsweep — Implementation Plan
 
-The v1 foundation below remains the compatibility contract. The [feature and benchmark expansion](#feature-and-benchmark-expansion) defines the next implementation milestones, covering eight proposed features and five additional benchmarks.
+The v1 foundation below remains the compatibility contract. The [feature and benchmark expansion](#feature-and-benchmark-expansion) tracks remaining work after the core expansion landed in-tree.
 
-**Expansion status:** planned; no expansion feature is marked implemented by this document. Updated September 22, 2026. Milestones 1–5 describe the existing v1 foundation; milestones 6–13 describe the new work.
+**Expansion status:** in progress (September 22, 2026). Milestones 1–5 and 6–11 are complete in source. Milestone 12 (guided setup UI, comparison dashboard, failure inspection) remains. Milestone 13 (additional providers and Codex) is out of scope. See `Implementation_plan_new_fetures.md` for the per-feature checklist.
 
 ## v1 foundation — LM Studio
 
@@ -122,43 +122,22 @@ All tests run without network access; an autouse guard rejects accidental socket
 
 Help users answer three questions: which model or coding agent succeeds at their work, how quickly it succeeds, and whether the difference is repeatable. Preserve the local-first CLI/TUI workflow and existing measurement definitions.
 
-All eight features and five benchmarks proposed in the product discussion are in scope. New benchmarks are opt-in; an existing invocation continues to select `weather`, `agent-code`, and `codegen`. Existing flags, exit codes, saved runs, and score meanings remain compatible. New command examples below are proposed interfaces, not currently available commands.
+Five additional benchmarks are implemented and opt-in; default runs still select `weather`, `agent-code`, and `codegen`. Existing flags, exit codes, saved runs, and score meanings remain compatible.
 
-“Codex” means an external coding-agent execution target when selected through the agent adapter. Running a model with LLMSweep's own tools measures that model plus LLMSweep's harness; running Codex measures the model plus Codex's configuration and tools. Reports must identify the execution target and never present these as interchangeable experiments.
+Non-goals for this expansion: a hosted leaderboard, billing or price estimates, arbitrary remote plugin execution, a browser dashboard, automatic publication, importing the entire SWE-bench dataset, and additional inference providers (OpenAI-compatible, Ollama) or external agent adapters (Codex).
 
-Non-goals for this expansion: a hosted leaderboard, billing or price estimates, arbitrary remote plugin execution, a browser dashboard, automatic publication, and importing the entire SWE-bench dataset. Public benchmark integrations can follow after the bundled suites are validated.
+### Remaining feature work
 
-### Current implementation and required changes
-
-The current source, rather than older milestone notes, establishes the starting point:
-
-| Current seam | Expansion work |
-| --- | --- |
-| `scenarios/__init__.py:create_scenario` selects three built-in scenarios | Introduce a metadata registry and versioned task definitions; preserve existing names. |
-| `Scenario.score` returns a success flag and text | Add structured scoring evidence with a compatibility wrapper for existing scenarios. |
-| `RunSession.run_model` treats every scenario except `codegen` as tool-dependent | Use declared capabilities so reasoning and knowledge tests work on models without tools. |
-| `RunSession.prepare` replaces model results; `run_all` starts a new schedule | Add an explicit execution plan and a separate resume path that preserves completed samples. |
-| `SampleResult` identifies a scenario and repeat | Add task, suite, attempt, and execution-target identities before supporting multiple tasks per suite. |
-| `RunResult.schema_version` and `load_run` currently support schema 1 | Implement an actual migration dispatcher and a backward-compatible schema 2 reader/writer. |
-| Transcript filenames use provider/model/scenario/repeat | Include task and attempt identities to prevent overwrites. |
-| `compare_runs` checks selected settings and token sources | Add task-set, environment, harness, and inference-setting compatibility checks. |
-| TUI has results, transcripts, baseline diff, exports, and model reruns | Extend these views with confidence, evidence, sample reruns, and cross-run comparisons. |
-| `RunStore.estimate` uses matching stored settings | Reuse it behind a richer comparable-history estimator; retain unknown estimates as `None`. |
-
-Paths above are relative to `src/llmsweep/`. Existing uncommitted application work is outside this planning change. At implementation kickoff, refresh the baseline checks and reconcile current source before modifying these seams.
-
-### Feature delivery map
-
-| ID | Feature | Deliverable and primary benefit | Milestones |
-| --- | --- | --- | --- |
-| F1 | Guided Benchmark Setup | Keyboard-accessible setup with Quick Check, Coding Quality, and Full Evaluation presets, capability checks, and historical runtime ranges; lowers setup effort. | 7, 12 |
-| F2 | Custom Benchmark Packs | Local, versioned manifests containing tasks, fixtures, budgets, tool permissions, and approved evaluator types; measures relevant work. | 6, 7 |
-| F3 | Quality–Speed Comparison Dashboard | Comparable-run filtering, success versus latency/throughput views, and accessible tables; makes tradeoffs visible. | 6, 10, 12 |
-| F4 | Reproducible Run Profiles | Named configurations plus actual environment, model, harness, and task fingerprints; makes reruns auditable. | 6, 7 |
-| F5 | Reliability and Confidence Reporting | Task-aware confidence estimates, variability, sample counts, and bounded exploratory repeats; reduces overinterpretation. | 10 |
-| F6 | Failure Analysis and Targeted Reruns | Structured assertions, bounded logs, code diffs, failure categories, and linked sample reruns; accelerates diagnosis. | 6, 9, 11, 12 |
-| F7 | Checkpoint and Resume | Durable task scheduling, interruption recovery, exclusive writers, and preserved attempts; avoids repeating finished work. | 6, 11 |
-| F8 | Model and Agent Adapters | Additional inference providers and a distinct external-agent interface, beginning with Codex; expands evaluation targets. | 6, 13 |
+| ID | Feature | Status |
+| --- | --- | --- |
+| F1 | Guided Benchmark Setup | Presets and a plan screen exist; full setup flow, profile save, and pilot coverage remain. |
+| F2 | Custom Benchmark Packs | Validation and an example pack exist; end-to-end pack runs and authoring docs remain. |
+| F3 | Quality–Speed Comparison Dashboard | `compare_checked` and `llmsweep compare` exist; TUI views and comparison export remain. |
+| F4 | Reproducible Run Profiles | Core profiles, schema 2, and fingerprints are shipped; docs and extra acceptance tests remain. |
+| F5 | Reliability and Confidence Reporting | Statistics are computed and stored; TUI surfacing and stop-rule tests/docs remain. |
+| F6 | Failure Analysis and Targeted Reruns | Categories, evidence, and `rerun` exist; transcript inspection UI and lineage tests remain. |
+| F7 | Checkpoint and Resume | Schedule, lock, and `resume` exist; interruption tests and docs remain. |
+| F8 | Model and Agent Adapters | **Out of scope** (OpenAI, Ollama, Codex). |
 
 ### Architecture and data contracts
 
@@ -198,51 +177,9 @@ Extend `results.py`, `store.py`, `runner.py`, `config.py`, `selection.py`, `plai
 - Timing compatibility requires matching hardware/server context, warmup policy, inference settings, execution mode, and token source. Quality-only comparisons may remain available when hardware differs. Unknown critical metadata yields “not comparable” for automated timing verdicts.
 - External agents without dispatch and output-delta timestamps receive `None` for TTFT/throughput. Report observed whole-task duration and explicitly sourced usage instead of deriving token speed from process stdout or total elapsed time.
 
-### Benchmark specifications
+### Built-in benchmarks (shipped)
 
-Each suite has development examples and a held-out evaluation partition, immutable versioned fixtures, a deterministic oracle, difficulty tags, documented budgets, and fresh state per task/repeat. Freeze the evaluation task list before running a comparison. Seeded ordering and generated fixtures are persisted; model determinism is not assumed.
-
-The initial task counts below are delivery targets for useful local suites, not claims of statistical representativeness. Default limits are initial guardrails to calibrate before release; changes create a new profile or benchmark version.
-
-#### B1 — Edge-Case Code Generation (`code-edge`, Coding)
-
-- **Measures:** First-attempt functional correctness and handling of boundary conditions across function-level programming problems.
-- **Initial corpus:** 20 Python tasks spanning collections, parsing, Unicode, numeric boundaries, and algorithms; include empty, invalid, and large inputs with behavior specified in the prompt.
-- **Execution:** One generation turn, no tools or corrective feedback, 2,048 output tokens, 120-second task budget, and at most 15 seconds per checker invocation. Performance limits guard execution; this release does not claim an algorithm-efficiency score.
-- **Scoring:** A task passes only when all independent assertions pass; report first-attempt task pass rate and diagnostic test-group results. Reference solutions and known incorrect variants validate the checker.
-- **Acceptance:** Correct reference implementations pass; off-by-one, Unicode, type-contract, and complexity-related failure fixtures are caught; truncated output and timeouts fail predictably. Test details remain outside the candidate's accessible workspace.
-
-#### B2 — Multi-File Feature Implementation (`multi-file`, Agentic coding)
-
-- **Measures:** Repository navigation, coordinated changes, adherence to a feature contract, and preservation of existing behavior.
-- **Initial corpus:** Six self-contained Python mini-repositories with roughly 5–15 source files each; tasks span a CLI option, parser capability, validation rule, configuration propagation, serialization change, and module integration.
-- **Execution:** Read/search/write/run-public-tests tools; 20 turns, 4,096 output tokens per turn, 32,768 total completion-token budget, and a 300-second task budget. Checkers have separate bounded execution deadlines.
-- **Scoring:** All hidden acceptance tests and existing regression tests pass, and protected files remain unchanged. Grade observable behavior, not whether the patch matches the reference implementation. Record changed files and tool errors diagnostically.
-- **Acceptance:** Test partial implementations, correct alternatives, regression-inducing changes, attempted test edits, traversal/symlink escapes, stalled subprocesses, and cancellation. Every repeat starts from the original repository digest.
-
-#### B3 — Repository Issue Resolution (`repo-issue`, Agentic coding)
-
-- **Measures:** Ability to reproduce a defect, diagnose its cause, repair it, and preserve previously working behavior.
-- **Initial corpus:** Eight pinned repository snapshots with issue descriptions, public reproduction commands, failing defect tests, and passing regression tests. Start with redistributable project-authored fixtures; record license and provenance for any later imported case.
-- **Execution:** Same tools and budgets as `multi-file`; dependencies must be preinstalled from pinned artifacts. No dependency downloads during scoring. Track reproduction attempts separately from final patch success.
-- **Scoring:** All designated fail-to-pass tests must pass and all pass-to-pass tests must remain passing. A model's claim that tests passed is not evidence. No matching of patches against a single reference diff.
-- **Acceptance:** Verify the defective baseline fails the intended tests, the reference fix passes, and no-op, test-deletion, hard-coded, and regression-inducing patches fail. Describe results as LLMSweep repository-issue scores, not SWE-bench scores.
-
-#### B4 — Constraint-Based Planning (`constraint-plan`, Reasoning)
-
-- **Measures:** Correct reasoning about schedules, dependencies, capacities, and optimization under explicit constraints.
-- **Initial corpus:** 30 small problems with seeded variants, split across scheduling, dependency ordering, and resource allocation; include feasible, infeasible, and multiple-valid-solution cases.
-- **Execution:** One turn, no tools, 2,048 output tokens, 120-second task budget; request a compact structured final answer. Do not require or grade private reasoning traces.
-- **Scoring:** Validate the answer schema, every constraint, and any claimed objective value using a bounded independent solver. Report feasibility accuracy and optimality separately; infeasibility claims must agree with the oracle.
-- **Acceptance:** Accept alternate valid optima, reject plausible but invalid schedules and false infeasibility claims, and verify oracle results against exhaustive enumeration on small fixtures. Parse failures receive structured feedback, not grader crashes.
-
-#### B5 — Knowledge Accuracy and Calibration (`knowledge-cal`, General knowledge)
-
-- **Measures:** Factual accuracy, confidence calibration, and appropriate abstention without browsing or retrieval tools.
-- **Initial corpus:** 100 curated questions balanced across science, history, geography, and technology; include 20 explicitly unanswerable or underspecified items. Store authoritative provenance, accepted answers, explanation, review date, and license for each item. Avoid rapidly changing facts.
-- **Execution:** One independent question per sample, one turn, 512 output tokens, 60-second task budget. Request `{answer, confidence, abstain}` with confidence in `[0, 1]`; use multiple-choice or narrowly normalized short answers.
-- **Scoring:** Report answerable-item accuracy, answered-item accuracy, coverage, and correct abstention on unanswerable items. Compute Brier score for the stated probability that a submitted answer is correct over answered items; always show its coverage and count. Abstention cannot improve the main answerable-item accuracy score. Invalid outputs count as unsuccessful responses and have no calibration value.
-- **Acceptance:** Cover answer aliases, boundary confidence values, nonfinite/out-of-range values, confident errors, valid abstentions, and ambiguous questions. Have a separate content review remove ambiguity before freezing the evaluation set.
+B1–B5 are implemented as opt-in suites: `code-edge` (20 tasks), `multi-file` (6), `repo-issue` (8), `constraint-plan` (30), and `knowledge-cal` (100). Corpus details, budgets, and oracles live in `src/llmsweep/benchmarks/corpora/`. User-facing scoring notes still belong in Mintlify docs.
 
 ### Execution and evaluator isolation
 
@@ -257,78 +194,7 @@ Broader code tasks must not inherit a misleading sandbox claim from v1's tempora
 
 ### Implementation milestones
 
-Complete each milestone's acceptance checks before starting dependent work. All items below start unchecked. Module names are proposed; preserve small interfaces rather than expanding every existing class at once.
-
-#### 6. Versioned results, profiles, and comparison foundations
-
-**Dependencies:** Existing v1 foundation. **Delivers:** F4 foundation; shared infrastructure for F2–F8.
-
-- [ ] Add task/target/attempt IDs, structured scores, manifests, environment snapshots, and schema 2 migration.
-- [ ] Separate requested settings from observed provider values; hash canonical non-secret configuration and fixture content.
-- [ ] Introduce pure comparison eligibility rules and retain v1 metric semantics.
-- [ ] Make transcript/artifact naming collision-resistant across task IDs, agent targets, retries, and repeats.
-- [ ] Add named profile resolution: CLI > environment > selected profile > project config > user config > defaults; no selected profile preserves existing precedence. Explicitly reject profile/CLI combinations that make a run ambiguous.
-
-**Acceptance:** Schema 1 fixtures still open and export offline without rewriting; unknown future schemas fail clearly; mismatched task digests block automatic comparisons; secrets are absent from snapshots, hashes' serialized inputs, logs, and exports. Identical captured runner observations still serialize identically through plain and TUI paths.
-
-#### 7. Benchmark registry, pack validation, and execution policy
-
-**Dependencies:** 6. **Delivers:** F2, reusable profiles for F4, preset metadata for F1.
-
-- [ ] Replace scenario-name special cases with declared tool requirements, execution kind, supported languages, turn limits, and evaluator capabilities.
-- [ ] Define `pack.toml` format with manifest schema version, pack version, suite/task IDs, category/difficulty, prompts, fixture hashes, permitted tools/writes, budgets, evaluator ID/version, and provenance/license metadata.
-- [ ] Add local `benchmarks list`, `benchmarks inspect`, `benchmarks validate`, and profile list/save commands; packs must be explicitly selected and never auto-loaded from arbitrary repository content.
-- [ ] Implement isolated execution and trusted evaluation boundaries above; add preflight capability reporting to `doctor` without sending benchmark requests.
-- [ ] Wrap the three existing scenarios through the registry without changing their default selection or scoring contract.
-
-**Acceptance:** Valid packs round-trip; duplicate IDs, unsupported evaluators, changed hashes, invalid budgets, traversal, and unsafe archives are rejected. Models without tools can run tool-free suites. Local pack validation and fixture checks require no inference server or network.
-
-#### 8. Coding, reasoning, and knowledge suites
-
-**Dependencies:** 6–7. **Delivers:** B1, B4, B5.
-
-- [ ] Implement the three suite evaluators and initial corpora specified above.
-- [ ] Persist structured per-task results, confidence values where applicable, selected partitions, and checker evidence.
-- [ ] Add explicit task selection and seeded ordering; preserve task-level results rather than collapsing each suite into one prompt.
-- [ ] Document each suite's scoring, limitations, output schema, and version policy.
-
-**Acceptance:** Reference answers pass and deliberately incorrect answers fail for every evaluator family; all oracle checks run offline; corpus review and provenance are complete. Fake-provider end-to-end tests prove selection, capability handling, scoring, persistence, and export for all three suites.
-
-#### 9. Repository benchmarks and failure evidence
-
-**Dependencies:** 6–8. **Delivers:** B2, B3; F6 evidence foundation.
-
-- [ ] Generalize workspace tools to bounded multi-file reads/searches/edits and allowlisted public test commands.
-- [ ] Implement immutable fixture restoration and independent acceptance/regression checking.
-- [ ] Capture redacted patch diffs, named test outcomes, tool-call failures, output truncation, and budget-exhaustion reasons before workspace cleanup.
-- [ ] Distinguish incorrect solution, invalid output, task budget exhaustion, tool-policy violation, provider failure, and evaluator infrastructure failure.
-
-**Acceptance:** Meet B2/B3 negative-case requirements; a changed or deleted checker cannot produce a pass; no candidate can access host secrets or evaluator answer keys; cancellation removes child processes and only run-owned resources. Evidence remains usable after temporary workspaces are deleted.
-
-#### 10. Reliability statistics and bounded repeat planning
-
-**Dependencies:** 6–9. **Delivers:** F5 and computed comparison views for F3.
-
-- [ ] Publish repeat counts, independent task counts, missing-data counts, timing spread, and confidence-method metadata.
-- [ ] For one fixed task's repeated binary outcome, use a 95% Wilson interval labeled as repeat reliability. For suite quality/timing, bootstrap task-level means by task clusters with an injected random generator; paired comparisons resample matched tasks together.
-- [ ] Keep fixed-repeat experiments as the default. For fewer than five distinct tasks, suppress suite confidence claims and label the evidence insufficient; five is a display minimum, not a guarantee of precision.
-- [ ] Add exploratory adaptive mode with predeclared minimum/maximum repeats, precision target, deterministic next-task selection, and total time/token caps. Persist the rule and every stopping decision.
-- [ ] Label adaptively stopped fixed-sample intervals descriptive and disable automatic regression verdicts for adaptive runs. Do not claim sequentially valid confidence without implementing and validating a suitable method in a future revision.
-
-**Acceptance:** Deterministic fixtures verify all-pass/all-fail bounds, missing data, unequal task counts, paired comparisons, low-sample behavior, and stop-at-budget behavior. Extra repeats cannot erase previous failures or change the selected evaluation set. Renderers perform no statistical calculations.
-
-#### 11. Checkpoint, resume, and targeted reruns
-
-**Dependencies:** 6–10. **Delivers:** F7 and F6 rerun execution.
-
-- [ ] Persist the complete task/repeat schedule and per-task states before execution; checkpoint each terminal attempt and shutdown.
-- [ ] Add an exclusive run lock, committed-manifest validation, and recovery for an interrupted artifact write. Keep the index rebuildable from committed run manifests.
-- [ ] Resume only absent or interrupted work after verifying fixture/config/target digests; restart an interrupted task in a fresh workspace with a new attempt ID. Preserve its previous partial transcript.
-- [ ] Never automatically rerun completed incorrect solutions, completed infrastructure failures, or deliberate skips; expose explicit selection for diagnostic reruns.
-- [ ] Store reruns as linked child runs, retaining original scores. Mark any rerun informed by revealed hidden evidence as diagnostic.
-- [ ] Reacquire and warm models for the new session, recording new lifecycle timing. Old lease records are not authority to unload an instance; uncertain orphan ownership is reported for reconciliation.
-
-**Acceptance:** Simulated interruption before/after every commit boundary produces no duplicate completed samples or lost committed evidence; a second writer is rejected; changed task/profile digests reject resume before execution. A resumed fake run yields the same completed-task scores as an uninterrupted run, with expected differences in session/attempt timing and provenance.
+Milestones 6–11 are complete in source. Milestone 13 is out of scope. Only milestone 12 remains.
 
 #### 12. Guided setup, dashboard, and failure inspection
 
@@ -343,22 +209,9 @@ Complete each milestone's acceptance checks before starting dependent work. All 
 
 **Acceptance:** Pilot tests cover setup/back navigation, invalid configurations, unknown ETA, small terminals, no-color output, failed-model visibility, evidence inspection, and rerun selection. Plain/TUI runs built from the same profile create equivalent plans/results. A synthetic 1,000+ deltas/second stream remains responsive during inspection and resize.
 
-#### 13. Additional model providers and Codex adapter
+### Command surface
 
-**Dependencies:** 6–12. **Delivers:** F8; all five benchmarks available to compatible targets.
-
-- [ ] Implement a generic OpenAI-compatible inference adapter, then an Ollama adapter, behind the existing provider seam. Publish a capability matrix for discovery, streaming, tool use, usage, and lifecycle ownership; unsupported operations stay explicit.
-- [ ] Introduce `AgentExecutor` separately from `Provider`: inspect capabilities/version, execute a task with workspace and budgets, emit observable events/artifacts, cancel, and clean up. The runner retains scheduling, evaluation, measurement, and persistence ownership.
-- [ ] Implement the Codex adapter through a documented noninteractive interface after verifying the locally installed version and current official documentation. Pin supported event schemas and store raw redacted event fixtures for contract tests; do not hard-code unverified command flags in this plan.
-- [ ] Capture agent version, actual/reported model identity, instructions/config fingerprint, enabled tools, execution policy, and event availability. Unknown underlying model identity prevents model-specific baseline claims.
-- [ ] For tool-free suites, require an enforceable tool-disabled agent profile; otherwise mark the target unsupported. Use separate labeled profiles for agentic suites, with equivalent task budgets and checker contracts.
-- [ ] Add fake process/HTTP fixtures for startup failure, auth error, invalid events, missing usage, timeout, cancellation, and leaked-child detection. Fetch current library/API documentation during implementation before choosing concrete SDK/CLI syntax.
-
-**Acceptance:** All adapters pass common observable contracts offline; no unsupported lifecycle operations are guessed; missing timing metrics render `n/a`; Codex cancellation cleans up its processes and preserves partial evidence. Manually verify one real run per supported adapter and one real Codex repository task before advertising that adapter as validated, recording exact versions and available measurements.
-
-### Proposed command surface
-
-These examples define intended UX; implementing parsers/help and documentation is part of the milestones above. `--profile` selects the reproducible configuration; `--preset` selects a versioned suite/task selection. If both are used, the explicit preset overrides the profile's selection and the resolved result is persisted.
+Shipped commands below; milestone 12 covers the remaining TUI surfaces. `--profile` selects the reproducible configuration; `--preset` selects a versioned suite/task selection. If both are used, the explicit preset overrides the profile's selection and the resolved result is persisted.
 
 ```bash
 llmsweep benchmarks list
