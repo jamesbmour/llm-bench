@@ -38,6 +38,7 @@ Top-level `--list` and `--show PATH` are compatibility aliases. Use
 | `--no-unload`, `--keep-loaded` | Retain instances loaded by the run. Pre-existing instances are always retained. |
 | `--parallel N` | Default `1`; values above 1 require preloaded models and mark timings contended. |
 | `--plain`, `--no-color` | Plain mode / monochrome TUI; `NO_COLOR` is honored. |
+| `--theme NAME` | Textual theme for the TUI (`run`, `show`); default `textual-dark`, `Ctrl+T` cycles at runtime. |
 | `--verbose` | Include tool events in stderr or the TUI log. |
 | `--transcript-dir DIR` | Additional transcript destination, grouped by run ID. |
 | `--sort-by KEY` | `order`, `tok_s`, `ttft`, `total`, `load`, `model`; `cost` is rejected in LM Studio v1. |
