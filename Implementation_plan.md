@@ -152,7 +152,6 @@ Proposed new modules, introduced only when their milestone needs them:
 | `evaluators/` | Deterministic evaluators and structured evidence; pure logic separate from checker execution. |
 | `execution/` | Workspace preparation, bounded processes, isolated candidate execution, and tool permissions. |
 | `statistics.py`, `comparison.py` | Pure uncertainty calculations, denominators, matching, and dashboard view models. |
-| `agents/base.py`, `agents/codex.py` | External-agent execution contract and Codex process adapter. |
 
 Extend `results.py`, `store.py`, `runner.py`, `config.py`, `selection.py`, `plain.py`, and the existing TUI rather than introducing another run store or measurement pipeline. `benchmarks/types.py` must not import providers, agents, the runner, or renderers. Keep construction/wiring at the application boundary to avoid circular imports.
 
@@ -200,9 +199,8 @@ Milestones 6–11 are complete in source. Milestone 13 is out of scope. Only mil
 
 **Dependencies:** 7–11. **Delivers:** F1, F3, F6 user interfaces.
 
-- [ ] Add a TUI flow for target selection, preset/task selection, budgets, execution-policy preflight, and review; offer equivalent plain CLI options.
-- [ ] Define Quick Check as a small, explicitly labeled diagnostic subset; Coding Quality selects B1/B2/B3; Full Evaluation selects all five new suites plus the original three scenarios. Display task counts and capability-based skips before starting.
-- [ ] Estimate runtime as a range from comparable completed history; use `unknown` when unavailable. Include load/warmup/checker overhead in ETA, separately from measured inference speed.
+- [ ] Finish the TUI setup flow (target selection, budgets, profile save, back navigation); presets and `llmsweep setup` already exist.
+- [ ] Show capability-based skips and historical runtime ranges in setup (not just task counts and `unknown` ETA).
 - [ ] Extend Results with comparable-run filters, success-versus-task-latency and success-versus-throughput views, sample counts, uncertainty, and explicit missing metrics. Keep rankings separate by execution kind.
 - [ ] Extend Transcript with assertion details, bounded diffs/logs, failure filtering, and a targeted-rerun action; load large evidence lazily.
 - [ ] Keep keyboard navigation, no-color labels, compact-terminal layouts, lossless resize, cancellation, and 75 ms stream buffering. Supply a table equivalent for every plot and export computed views to existing formats.
@@ -225,10 +223,10 @@ llmsweep run --plain --models MODEL --scenarios constraint-plan,knowledge-cal
 llmsweep resume ./saved-run --plain
 llmsweep rerun ./saved-run --sample SAMPLE_ID --plain
 llmsweep compare ./run-a ./run-b --plain
-llmsweep run --target agent:codex --agent-profile codex-controlled --scenarios repo-issue
+llmsweep setup --preset quick-check
 ```
 
-Preserve existing selection behavior and `--task` semantics. Reject conflicting model/provider and agent-target options before execution. Exact pack/profile formats and CLI error cases must be specified and tested in milestones 6–7 before downstream interfaces depend on them.
+Preserve existing selection behavior and `--task` semantics. Reject conflicting model/provider options before execution.
 
 ### Validation and release gates
 
@@ -242,7 +240,6 @@ Automated tests remain deterministic and network-free. Inject clocks, sleeps, ID
 | Execution | Network/host-file isolation, protected checker boundaries, tool permissions, resource budgets, and process cleanup. |
 | Statistics | Known-value fixtures, task-cluster resampling, matching/denominator rules, low-sample handling, and bounded adaptive scheduling. |
 | Interfaces | CLI parser/help/export coverage and TUI pilot coverage, including high-rate events and cancellation. |
-| Adapter compatibility | Fake HTTP/process contract suites plus separately recorded manual live smoke runs. |
 
 For each milestone run applicable offline tests, `uv run ruff check`, `uv run ruff format --check`, and `uv run mypy --strict`. Before release, run the full suite, build/install the wheel in a clean environment, exercise plain CLI smoke commands, and retain the supported macOS/Ubuntu and Python/Textual compatibility matrix. Tests validate behavior rather than dataclass defaults or field forwarding.
 
@@ -250,7 +247,7 @@ Update README, CHANGELOG, Mintlify navigation/pages, CLI reference, architecture
 
 ### Delivery order, risks, and completion criteria
 
-Suggested increments: milestones 6–8 establish reproducible packs and three tool-free suites; milestone 9 adds repository tasks; milestones 10–12 deliver trustworthy comparisons and usable long-run workflows; milestone 13 expands targets. This is dependency sequencing, not a calendar commitment. Re-estimate after the schema and isolation prototypes are complete.
+Finish milestone 12 (guided setup UI, comparison dashboard, failure inspection) and the remaining docs/tests listed in `Implementation_plan_new_fetures.md`.
 
 | Risk | Mitigation / release decision |
 | --- | --- |
@@ -259,7 +256,6 @@ Suggested increments: milestones 6–8 establish reproducible packs and three to
 | Public fixtures are memorized or exposed | Version and disclose provenance; support private user packs; label post-evidence reruns; avoid contamination-free claims. |
 | Hardware or sampling differences masquerade as model improvements | Record observed settings and environment, separate comparison modes, and suppress incompatible automatic verdicts. |
 | Resume or selective reruns inflate scores | Preserve immutable attempt history, explicit selection, and parent/child lineage; never replace an original failure with a diagnostic success. |
-| External-agent interfaces change or hide measurements | Version adapters, retain raw event fixtures, use capability preflight, and expose unknown metrics honestly. |
 | Strong isolation unavailable on a user's machine | Fail preflight for new executable packs; keep compatible v1 and tool-free workflows available. |
 
-The expansion is complete only when F1–F8 and B1–B5 meet their milestone criteria, existing v1 behavior remains compatible, all automated gates pass, documentation distinguishes supported from unavailable capabilities, and manual live validation is recorded for each advertised execution adapter. This document itself authorizes planning only; implementation progress should be tracked by checking the milestone items as they are actually completed.
+The expansion is complete when F1–F7 meet their remaining criteria in `Implementation_plan_new_fetures.md`, existing v1 behavior remains compatible, and all automated gates pass. LM Studio remains the only supported provider.
