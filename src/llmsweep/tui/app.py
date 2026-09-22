@@ -11,7 +11,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App
 from textual.binding import Binding, BindingType
-from textual.widgets import HelpPanel, ProgressBar, RichLog, Static
+from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
 from llmsweep.config import Settings
@@ -27,12 +27,28 @@ from llmsweep.selection import filter_models, resolve_selection
 from llmsweep.store import RunStore, load_run
 from llmsweep.tui.screens.main import (
     DiffScreen,
+    HelpScreen,
     LiveScreen,
     PathDialog,
     PickerScreen,
     ResultsScreen,
     TranscriptScreen,
 )
+from llmsweep.tui.widgets.chrome import StatusBar
+
+THEMES = (
+    "textual-dark",
+    "textual-light",
+    "nord",
+    "gruvbox",
+    "tokyo-night",
+    "catppuccin-mocha",
+    "dracula",
+    "monokai",
+    "solarized-light",
+    "flexoki",
+)
+TONES = ("primary", "secondary", "accent", "success", "warning", "error", "foreground")
 
 
 class SweepApp(App[int]):
@@ -42,10 +58,12 @@ class SweepApp(App[int]):
     TITLE = "llmsweep"
     SUB_TITLE = "LM Studio benchmarks"
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+c", "quit", "Quit", priority=True),
         Binding("ctrl+x", "cancel_run", "Cancel run", priority=True),
-        Binding("ctrl+c", "interrupt_hint", "", show=False, priority=True),
+        Binding("ctrl+q", "interrupt_hint", "", show=False, priority=True),
+        Binding("ctrl+t", "cycle_theme", "Theme", show=False, priority=True),
         Binding("f1", "help", "Help"),
+        Binding("question_mark", "help", "Help", show=False, key_display="?"),
     ]
 
     def __init__(
@@ -71,9 +89,10 @@ class SweepApp(App[int]):
         self.stopping = False
         self.transitioning = False
         self.discovered = False
+        self.status: dict[str, str] = {}
 
     def on_mount(self) -> None:
-        self.theme = "textual-dark"
+        self.apply_theme(str(self.settings.values["theme"]))
         self.set_class(self.settings.values["no_color"], "monochrome")
         self.set_interval(0.075, self.flush_events)
         if self.saved_run:
@@ -81,6 +100,38 @@ class SweepApp(App[int]):
         else:
             self.push_screen(PickerScreen())
             self.call_after_refresh(self.discover_models)
+
+    def apply_theme(self, name: str) -> None:
+        if name not in self.available_themes:
+            self.notify(f"Unknown theme {name!r}; using {THEMES[0]}", severity="warning")
+            name = THEMES[0]
+        self.theme = name
+        self.update_status(theme=f"^t theme {name}")
+
+    def action_cycle_theme(self) -> None:
+        index = THEMES.index(self.theme) if self.theme in THEMES else -1
+        self.apply_theme(THEMES[(index + 1) % len(THEMES)])
+        self.notify(f"Theme: {self.theme}", timeout=2)
+
+    def tone(self, name: str) -> str:
+        """Return a Rich style for a theme color, or nothing when colors are disabled."""
+        if self.has_class("monochrome") or name not in TONES:
+            return ""
+        return self.theme_variables.get(name, "")
+
+    def context_label(self) -> str:
+        if self.session is None and self.saved_run is not None:
+            return f"run {self.saved_run.run_id}"
+        return str(self.settings.values["base_url"])
+
+    def update_status(self, **segments: str | None) -> None:
+        for key, value in segments.items():
+            if value is None:
+                self.status.pop(key, None)
+            else:
+                self.status[key] = value
+        for bar in self.screen.query(StatusBar):
+            bar.show(self.status)
 
     @work(exit_on_error=False, exclusive=False, group="discovery", description="Discover LM Studio")
     async def discover_models(self) -> list[ModelInfo]:
@@ -162,11 +213,14 @@ class SweepApp(App[int]):
         done = sum(m.status in ("completed", "error", "cancelled") for m in self.live.results)
         self.live.query_one(ProgressBar).update(progress=done)
         eta = (
-            f" | estimated remaining {max(0, self.run_eta - elapsed):.0f}s"
+            f" · estimated remaining {max(0, self.run_eta - elapsed):.0f}s"
             if self.run_eta is not None
             else ""
         )
         self.live.query_one("#run-clock", Static).update(f"Elapsed {elapsed:.1f}s{eta}")
+        self.update_status(
+            run=f"running {done}/{len(self.live.results)} done", clock=f"{elapsed:.0f}s"
+        )
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         worker = event.worker
@@ -291,14 +345,31 @@ class SweepApp(App[int]):
             self.transitioning = False
 
     def action_interrupt_hint(self) -> None:
-        self.notify("Press Ctrl+Q to quit; Ctrl+X cancels the run")
+        self.notify("Press Ctrl+C to quit; Ctrl+X cancels the run")
+
+    def binding_rows(self) -> list[tuple[str, str, str]]:
+        """Describe every binding reachable from the current screen, global ones first."""
+        screen_name = type(self.screen).__name__
+        rows: list[tuple[int, str, str, str]] = []
+        for active in self.active_bindings.values():
+            binding = active.binding
+            if not binding.description:
+                continue
+            if active.node is self:
+                rank, scope = 0, "Global"
+            elif active.node is self.screen:
+                rank, scope = 1, screen_name
+            else:
+                rank, scope = 2, type(active.node).__name__
+            rows.append((rank, self.get_key_display(binding), binding.description, scope))
+        rows.sort(key=lambda row: row[0])
+        return [(key, description, scope) for _, key, description, scope in rows]
 
     def action_help(self) -> None:
-        panels = list(self.screen.query(HelpPanel))
-        if panels:
-            panels[0].remove()
-        else:
-            self.screen.mount(HelpPanel())
+        if isinstance(self.screen, HelpScreen):
+            self.screen.dismiss()
+            return
+        self.push_screen(HelpScreen(self.binding_rows()))
 
     @work(exit_on_error=False, exclusive=False, group="dialogs", description="View transcript")
     async def show_transcript(self, model: ModelResult) -> None:

@@ -27,7 +27,8 @@
         "group": "Architecture & Core",
         "pages": [
           "architecture",
-          "design_rationale_and_assumptions"
+          "design_rationale_and_assumptions",
+          "design"
         ]
       },
       {
@@ -35,6 +36,12 @@
         "pages": [
           "scenarios",
           "metrics_and_scoring"
+        ]
+      },
+      {
+        "group": "Data & Exports",
+        "pages": [
+          "data_formats"
         ]
       },
       {

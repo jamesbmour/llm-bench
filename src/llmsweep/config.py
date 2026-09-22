@@ -39,6 +39,7 @@ DEFAULTS: dict[str, Any] = {
     "sort_by": "order",
     "plain": False,
     "no_color": False,
+    "theme": "textual-dark",
     "verbose": False,
     "run_store": None,
     "transcript_dir": None,
@@ -206,6 +207,8 @@ def resolve_config(
     if path.endswith("/v1"):
         path = path[:-3]
     values["base_url"] = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    if not str(values["theme"]).strip():
+        raise ConfigError("theme must be a Textual theme name such as textual-dark or nord")
     if values["sort_by"] not in ("order", "tok_s", "ttft", "total", "load", "model"):
         raise ConfigError("unsupported sort; LM Studio has no cost metric")
     if values["models"] and values["all"]:

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import contextlib
 import json
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Container, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.dom import DOMNode
 from textual.events import Resize
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Input, ProgressBar, RichLog, Static
@@ -20,10 +21,36 @@ from llmsweep.plain import display, ordered_models
 from llmsweep.results import ModelResult, RunResult
 from llmsweep.selection import filter_models, resolve_selection
 from llmsweep.store import canonical_json
-from llmsweep.tui.widgets.model_card import ModelCard
+from llmsweep.tui.widgets.chrome import StatusBar, TitleBar
+from llmsweep.tui.widgets.model_card import STATUS_GLYPHS, ModelCard
 
 if TYPE_CHECKING:
     from llmsweep.tui.app import SweepApp
+
+HELP_LEGEND = """\
+Metrics  tok/s is client-observed: output tokens ÷ generation window (first → last delta),
+         excluding load, warmup, tool execution, and checker time
+         TTFT: request dispatch → first output delta · Load: model load latency (n/a when the
+         model was already loaded) · Source: usage (API token counts) or estimated (utf-8
+         bytes ÷ 4); mixed sources block baseline comparison
+Status   ○ pending  ● running  ✔ completed  ✖ error  ■ cancelled
+         A wrong answer is a scoring failure: reported as completed with a lower pass rate,
+         never as a model error
+Exit     0 success · 1 model error · 2 config or setup · 3 regression only · 4 auth"""
+
+
+def seconds(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.3f}s"
+
+
+def status_tone(model: ModelResult, summary: dict[str, Any]) -> str:
+    if model.status == "error":
+        return "error"
+    if model.status == "cancelled":
+        return "warning"
+    if model.status == "completed":
+        return "warning" if summary["success"] is False else "success"
+    return "primary"
 
 
 class SweepScreen(Screen[None]):
@@ -37,12 +64,16 @@ class SweepScreen(Screen[None]):
 class PickerScreen(SweepScreen):
     """Select eligible models using the same resolver as command-line runs."""
 
+    AUTO_FOCUS = "#model-picker"
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("slash", "search", "Search"),
         Binding("space", "select_model", "Select"),
+        Binding("a", "select_all", "Select all"),
+        Binding("x", "clear_selection", "Clear"),
         Binding("t", "tools", "Tools only"),
         Binding("e", "strict", "Known chat types"),
         Binding("ctrl+r", "run", "Run selected"),
+        Binding("escape", "focus_table", "", show=False),
     ]
 
     def __init__(self) -> None:
@@ -55,19 +86,27 @@ class PickerScreen(SweepScreen):
         self.strict_types = False
 
     def compose(self) -> ComposeResult:
-        yield Static("llmsweep / local model benchmarks", classes="app-header")
-        yield Static("LM STUDIO  /  MODEL SWEEP", classes="page-title")
-        yield Input(placeholder="Search models (/)", id="model-search")
-        yield DataTable(id="model-picker", cursor_type="row")
-        yield Input(placeholder="Model IDs or indices: 1-3,5", id="model-selection")
-        yield Static("Connecting to LM Studio…", id="selection-summary", markup=False)
-        yield Button("Run selected", id="run-selected", variant="primary")
+        yield TitleBar("MODEL PICKER")
+        yield Static(
+            "Space toggles the highlighted row · a selects every visible model · x clears"
+            " · Ctrl+R starts the sweep",
+            classes="section-note",
+            markup=False,
+        )
+        with Horizontal(id="picker-inputs"):
+            yield Input(placeholder="type to narrow the list", id="model-search")
+            yield Input(placeholder="1-3,5 or model ids", id="model-selection")
+        yield DataTable(id="model-picker", cursor_type="row", zebra_stripes=True)
+        with Horizontal(id="picker-footer"):
+            yield Static("Connecting to LM Studio…", id="selection-summary", markup=False)
+            yield Button("Run selected", id="run-selected", variant="primary")
+        yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(
-            "Selected", "#", "Model", "B params", "Tools", "Loaded"
-        )
+        self.query_one("#model-search", Input).border_title = "Search  /"
+        self.query_one("#model-selection", Input).border_title = "Select by index or id"
+        self.query_one(DataTable).add_columns("✓", "#", "Model", "B params", "Tools", "Loaded")
         self.refresh_models()
 
     def set_models(self, models: list[ModelInfo]) -> None:
@@ -97,6 +136,25 @@ class PickerScreen(SweepScreen):
                 key=model.ref.key,
             )
         self.summary()
+        toggles = (("tools-only", self.tools_only), ("known types", self.strict_types))
+        filters = [name for name, active in toggles if active]
+        self.controller.update_status(
+            context=(
+                f"{len(self.visible_models)} of {len(self.eligible)} models"
+                f" · {len(self.selected)} selected"
+            ),
+            filter=", ".join(filters) or None,
+            run=None,
+            sort=None,
+            clock=None,
+            hint=None,
+        )
+
+    def refresh_keeping_cursor(self) -> None:
+        table = self.query_one(DataTable)
+        cursor = table.cursor_row
+        self.refresh_models()
+        table.move_cursor(row=cursor)
 
     def summary(self, error: str | None = None) -> None:
         refs = [m.ref for m in self.eligible if m.ref in self.selected]
@@ -109,7 +167,7 @@ class PickerScreen(SweepScreen):
         if refs and session:
             eta = session.store.estimate(refs, session.options.settings())
             if eta is not None:
-                text += f" | previous-run ETA: {eta:.0f}s"
+                text += f" · previous-run ETA {eta:.0f}s"
         self.query_one("#selection-summary", Static).update(Text(text))
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -127,6 +185,9 @@ class PickerScreen(SweepScreen):
                 self.selected.clear()
                 self.summary(str(exc))
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_focus_table()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_select_model()
 
@@ -138,12 +199,21 @@ class PickerScreen(SweepScreen):
                 self.selected.remove(ref)
             else:
                 self.selected.add(ref)
-            cursor = table.cursor_row
-            self.refresh_models()
-            table.move_cursor(row=cursor)
+            self.refresh_keeping_cursor()
+
+    def action_select_all(self) -> None:
+        self.selected.update(model.ref for model in self.visible_models)
+        self.refresh_keeping_cursor()
+
+    def action_clear_selection(self) -> None:
+        self.selected.clear()
+        self.refresh_keeping_cursor()
 
     def action_search(self) -> None:
         self.query_one("#model-search", Input).focus()
+
+    def action_focus_table(self) -> None:
+        self.query_one(DataTable).focus()
 
     def action_tools(self) -> None:
         self.tools_only = not self.tools_only
@@ -168,8 +238,14 @@ class PickerScreen(SweepScreen):
 class LiveScreen(SweepScreen):
     """Display buffered progress for all active models."""
 
+    AUTO_FOCUS = "ModelCard"
     ESCAPE_TO_MINIMIZE = False
-    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "app.cancel_run", "Cancel")]
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "app.cancel_run", "Cancel"),
+        Binding("z", "zoom", "Zoom card"),
+        Binding("right_square_bracket", "next_card", "Next card", key_display="]"),
+        Binding("left_square_bracket", "previous_card", "Prev card", key_display="["),
+    ]
 
     def __init__(
         self, results: list[ModelResult], previous: dict[ModelRef, ModelCard] | None = None
@@ -178,12 +254,13 @@ class LiveScreen(SweepScreen):
         self.results = results
         self.cards: dict[ModelRef, ModelCard] = {}
         self.previous = previous or {}
+        self.zoomed = False
 
     def compose(self) -> ComposeResult:
-        yield Static("llmsweep / local model benchmarks", classes="app-header")
-        yield Static("BENCHMARK IN PROGRESS", classes="page-title")
-        yield Static("Elapsed 0s", id="run-clock", markup=False)
-        yield ProgressBar(total=len(self.results), show_eta=False, id="run-progress")
+        yield TitleBar("BENCHMARK IN PROGRESS")
+        with Horizontal(id="run-header"):
+            yield Static("Elapsed 0s", id="run-clock", markup=False)
+            yield ProgressBar(total=len(self.results), show_eta=False, id="run-progress")
         with VerticalScroll(id="live-scroll"), Container(id="card-grid"):
             for result in self.results:
                 card = ModelCard(result, self.controller.redact)
@@ -198,72 +275,190 @@ class LiveScreen(SweepScreen):
                 self.cards[result.model.ref] = card
                 yield card
         yield RichLog(id="verbose-log", wrap=True, markup=False, highlight=False)
+        yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#verbose-log").display = self.controller.settings.values["verbose"]
         self.set_class(self.size.width < 110, "narrow")
+        self.controller.update_status(
+            context=f"{len(self.results)} models", run="starting", sort=None, filter=None, hint=None
+        )
 
     def on_resize(self, event: Resize) -> None:
         self.set_class(event.size.width < 110, "narrow")
 
+    def current_card(self) -> ModelCard | None:
+        node: DOMNode | None = self.focused
+        while node is not None and not isinstance(node, ModelCard):
+            node = node.parent
+        if isinstance(node, ModelCard):
+            return node
+        return next(iter(self.cards.values()), None)
+
+    def focus_card(self, card: ModelCard) -> None:
+        for other in self.cards.values():
+            other.set_class(self.zoomed and other is card, "zoom-target")
+        card.focus()
+        card.scroll_visible()
+        self.controller.update_status(
+            hint=f"zoomed on {card.result.model.ref.key} (z restores)" if self.zoomed else None
+        )
+
+    def step_card(self, offset: int) -> None:
+        cards = list(self.cards.values())
+        current = self.current_card()
+        if current is None:
+            return
+        self.focus_card(cards[(cards.index(current) + offset) % len(cards)])
+
+    def action_next_card(self) -> None:
+        self.step_card(1)
+
+    def action_previous_card(self) -> None:
+        self.step_card(-1)
+
+    def action_zoom(self) -> None:
+        card = self.current_card()
+        if card is None:
+            return
+        self.zoomed = not self.zoomed
+        self.set_class(self.zoomed, "zoomed")
+        self.focus_card(card)
+
 
 class ResultsScreen(SweepScreen):
-    """Sort and inspect persisted model outcomes."""
+    """Sort, filter, and inspect persisted model outcomes."""
 
+    AUTO_FOCUS = "#results-table"
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("s", "sort", "Sort"),
+        Binding("slash", "filter", "Filter"),
+        Binding("f", "status_filter", "Status filter"),
         Binding("enter", "transcript", "Transcript"),
         Binding("d", "diff", "Baseline diff"),
         Binding("e", "export", "Export"),
         Binding("r", "rerun", "Rerun model"),
+        Binding("escape", "focus_table", "", show=False),
     ]
     SORTS = ("order", "tok_s", "ttft", "total", "load", "model")
+    STATUS_FILTERS = ("all", "passed", "failed", "errors")
+    COLUMNS: ClassVar[tuple[tuple[str, str | None], ...]] = (
+        ("Model", "model"),
+        ("Status", None),
+        ("Pass rate", None),
+        ("tok/s", "tok_s"),
+        ("TTFT ms", "ttft"),
+        ("Load s", "load"),
+        ("Total s", "total"),
+        ("Source", None),
+        ("Error", None),
+    )
 
     def __init__(self, run: RunResult, sort_by: str = "order") -> None:
         super().__init__()
         self.run = run
         self.sort_by = sort_by
+        self.status_filter = "all"
+        self.needle = ""
         self.rows: list[ModelResult] = []
 
     def compose(self) -> ComposeResult:
-        yield Static("llmsweep / local model benchmarks", classes="app-header")
-        yield Static("RESULTS  /  LM STUDIO", classes="page-title")
-        yield Static("Client-observed tok/s · mean of scenario means", id="results-description")
-        yield DataTable(id="results-table", cursor_type="row")
+        yield TitleBar("RESULTS")
+        yield Input(placeholder="model, status, or error text", id="results-filter")
+        yield Static("", id="results-description", markup=False)
+        yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="results-detail", markup=False)
+        yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(
-            "Model", "Status", "Pass rate", "tok/s", "TTFT ms", "Load s", "Source", "Error"
-        )
+        self.query_one("#results-filter", Input).border_title = "Filter  /"
         self.refresh_table()
+
+    def matches(self, model: ModelResult, summary: dict[str, Any]) -> bool:
+        success = summary["success"]
+        if self.status_filter == "passed" and (model.status != "completed" or success is not True):
+            return False
+        if self.status_filter == "failed" and success is not False:
+            return False
+        if (
+            self.status_filter == "errors"
+            and model.status not in ("error", "cancelled")
+            and not model.error
+        ):
+            return False
+        if not self.needle:
+            return True
+        haystack = " ".join([model.model.ref.key, model.status, model.error or ""]).casefold()
+        return self.needle in haystack
 
     def refresh_table(self) -> None:
         table = self.query_one(DataTable)
-        table.clear()
-        self.rows = ordered_models(self.run, self.sort_by)
-        for model in self.rows:
+        previous = self.selected_model()
+        table.clear(columns=True)
+        for label, key in self.COLUMNS:
+            marker = "" if key != self.sort_by else (" ▼" if key == "tok_s" else " ▲")
+            table.add_column(label + marker, key=label)
+        tone = self.controller.tone
+        counts = {"passed": 0, "failed": 0, "errors": 0}
+        self.rows = []
+        for model in ordered_models(self.run, self.sort_by):
             summary = model.summary()
+            if model.status in ("error", "cancelled") or model.error:
+                counts["errors"] += 1
+            elif summary["success"] is True:
+                counts["passed"] += 1
+            elif summary["success"] is False:
+                counts["failed"] += 1
+            if not self.matches(model, summary):
+                continue
+            self.rows.append(model)
+            rate = summary["success_rate"]
+            rate_tone = (
+                ""
+                if rate is None
+                else tone("success" if rate == 1 else "error" if rate == 0 else "warning")
+            )
             table.add_row(
-                *[
-                    Text(display(v))
-                    for v in [
-                        model.model.ref.key,
-                        model.status,
-                        summary["success_rate"],
-                        summary["tok_s"],
-                        summary["ttft_ms"],
-                        model.load_s,
-                        summary["token_source"],
-                        self.controller.redact(model.error or ""),
-                    ]
-                ],
+                Text(model.model.ref.key),
+                Text(
+                    f"{STATUS_GLYPHS.get(model.status, '·')} {model.status}",
+                    style=tone(status_tone(model, summary)),
+                ),
+                Text(display(rate), style=rate_tone),
+                Text(display(summary["tok_s"])),
+                Text(display(summary["ttft_ms"])),
+                Text(display(model.load_s)),
+                Text(display(model.total_s)),
+                Text(display(summary["token_source"])),
+                Text(
+                    display(self.controller.redact(model.error or "")),
+                    style=tone("error") if model.error else "",
+                ),
                 key=model.model.ref.key,
             )
+        if previous is not None:
+            keys = [m.model.ref.key for m in self.rows]
+            if previous.model.ref.key in keys:
+                table.move_cursor(row=keys.index(previous.model.ref.key))
+        total = len(self.run.models)
         self.query_one("#results-description", Static).update(
-            f"Client-observed tok/s · mean of scenario means · sort: {self.sort_by}"
+            Text(
+                f"{total} models · {counts['passed']} passed · {counts['failed']} failed"
+                f" · {counts['errors']} errors · tok/s is client-observed, mean of scenario means"
+            )
+        )
+        filters = [] if self.status_filter == "all" else [self.status_filter]
+        if self.needle:
+            filters.append(f'"{self.needle}"')
+        self.controller.update_status(
+            context=f"{len(self.rows)} of {total} models",
+            run=f"run {self.run.status}",
+            sort=f"sort {self.sort_by}",
+            filter=" ".join(filters) or None,
+            clock=None,
+            hint=None,
         )
         self.show_details()
 
@@ -275,6 +470,10 @@ class ResultsScreen(SweepScreen):
         model = self.selected_model()
         lines = []
         if model:
+            lines.append(
+                f"{model.model.ref.key} · load {seconds(model.load_s)} ({model.load_status})"
+                f" · warmup {seconds(model.warmup_s)} · total {seconds(model.total_s)}"
+            )
             for scenario, stats in model.rollups().items():
                 for name in ("tok_s", "ttft_ms"):
                     value = stats[name]
@@ -293,9 +492,28 @@ class ResultsScreen(SweepScreen):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_transcript()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "results-filter":
+            self.needle = event.value.strip().casefold()
+            self.refresh_table()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_focus_table()
+
     def action_sort(self) -> None:
         self.sort_by = self.SORTS[(self.SORTS.index(self.sort_by) + 1) % len(self.SORTS)]
         self.refresh_table()
+
+    def action_filter(self) -> None:
+        self.query_one("#results-filter", Input).focus()
+
+    def action_status_filter(self) -> None:
+        options = self.STATUS_FILTERS
+        self.status_filter = options[(options.index(self.status_filter) + 1) % len(options)]
+        self.refresh_table()
+
+    def action_focus_table(self) -> None:
+        self.query_one(DataTable).focus()
 
     def action_transcript(self) -> None:
         model = self.selected_model()
@@ -312,6 +530,33 @@ class ResultsScreen(SweepScreen):
         model = self.selected_model()
         if model:
             self.controller.rerun_model(model.model.ref)
+
+
+class HelpScreen(ModalScreen[None]):
+    """Overlay listing the bindings active beneath it plus the metric and status legend."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("f1", "dismiss", "Close", show=False),
+        Binding("question_mark", "dismiss", "Close", show=False),
+    ]
+
+    def __init__(self, rows: list[tuple[str, str, str]]) -> None:
+        super().__init__()
+        self.rows = rows
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog help-dialog"):
+            yield DataTable(id="help-bindings", cursor_type="row", zebra_stripes=True)
+            yield Static(HELP_LEGEND, id="help-legend", markup=False)
+            yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(".dialog").border_title = "KEYBOARD SHORTCUTS & LEGEND"
+        table = self.query_one(DataTable)
+        table.add_columns("Key", "Action", "Scope")
+        for key, action, scope in self.rows:
+            table.add_row(Text(key, style="bold"), action, scope)
 
 
 class TranscriptScreen(ModalScreen[None]):
@@ -338,6 +583,7 @@ class TranscriptScreen(ModalScreen[None]):
             yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one(".dialog").border_title = "TRANSCRIPT"
         self.refresh_transcript()
 
     def refresh_transcript(self) -> None:
@@ -365,7 +611,10 @@ class TranscriptScreen(ModalScreen[None]):
         app = cast("SweepApp", self.app)
         self.text = app.redact(canonical_json(documents))
         self.query_one("#transcript-title", Static).update(
-            Text(f"{self.model.model.ref.key} · repeat {repeat}")
+            Text(
+                f"{self.model.model.ref.key} · repeat {repeat} of {len(self.repeats)}"
+                " · n/p switch repeats · y copies JSON"
+            )
         )
         log = self.query_one(RichLog)
         log.clear()
@@ -401,6 +650,7 @@ class PathDialog(ModalScreen[str | None]):
             yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one(".path-dialog").border_title = "PATH"
         self.query_one(Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -424,22 +674,24 @@ class DiffScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
-            yield Static("BASELINE COMPARISON", classes="page-title")
             yield RichLog(wrap=True, markup=False)
             yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one(".dialog").border_title = "BASELINE COMPARISON"
+        tone = cast("SweepApp", self.app).tone
         log = self.query_one(RichLog)
         for row in self.comparisons:
-            verdict = (
-                "▼ regression"
-                if row["verdict"] == "regression"
-                else (
-                    "▲ within threshold"
-                    if row["verdict"] == "within threshold"
-                    else "not comparable"
-                )
-            )
+            if row["verdict"] == "regression":
+                verdict, style = "▼ regression", tone("error")
+            elif row["verdict"] == "within threshold":
+                verdict, style = "▲ within threshold", tone("success")
+            else:
+                verdict, style = "not comparable", ""
             log.write(
-                Text(f"{row['model']} / {row['scenario']}: {verdict}\n{row.get('reason') or ''}")
+                Text.assemble(
+                    (f"{row['model']} / {row['scenario']}: ", "bold"),
+                    (verdict, style),
+                    f"\n{row.get('reason') or ''}",
+                )
             )

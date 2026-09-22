@@ -68,3 +68,10 @@ def test_non_tty_and_invalid_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CI", "1")
     assert not cli.wants_tui()
     assert cli.main(["run", "--provider", "ollama", "--all"]) == 2
+
+
+def test_theme_flag_only_on_tui_commands() -> None:
+    assert cli.parser().parse_args(["run", "--theme", "nord"]).theme == "nord"
+    assert cli.parser().parse_args(["show", "run.json", "--theme", "nord"]).theme == "nord"
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(["export", "run.json", "--theme", "nord"])

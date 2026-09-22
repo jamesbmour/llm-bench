@@ -68,15 +68,13 @@ flowchart TD
     Fallback --> Record
 ```
 
-1. **API-Reported Usage (`token_source: "usage"`)**:
-   - Prefers explicit `completion_tokens` delivered in the final SSE `usage` packet.
-   - Includes internal reasoning/thinking tokens when reported by the engine.
-2. **Chunk-Independent Fallback (`token_source: "estimated"`)**:
-   - When the server omits usage packets or returns null values, token volume is estimated deterministically using the UTF-8 byte length of all concatenated deltas:
-     $$\text{Estimated Tokens} = \left\lceil \frac{\text{len}(\text{output\_bytes})}{4} \right\rceil$$
-   - This approach is independent of stream fragmentation and chunking boundaries.
-3. **Source Tracking**:
-   - The token source is stored with each turn and reported in exports. Comparisons between runs with mismatched token sources emit an explicit warning.
+**Token source values**: The `token_source` field on each turn can be:
+- `"usage"`: API-reported `completion_tokens` from the SSE usage packet (includes reasoning tokens when reported). This is the preferred and most accurate source.
+- `"estimated"`: Byte-based fallback $\lceil \text{bytes} / 4 \rceil$ used when the server omits usage packets or returns null values. Independent of stream chunking boundaries.
+
+<Note>
+The type definition also includes a `"server"` literal, but this value is never produced by current code. It exists for forward compatibility with future provider integrations that may report tokens differently from LM Studio's OpenAI-compatible endpoint.
+</Note>
 
 ---
 
@@ -86,9 +84,9 @@ When `--repeat <n>` is set ($n > 1$), `llmsweep` computes statistical distributi
 
 - **Mean**: Arithmetic average ($\mu$).
 - **Median**: 50th percentile sample value.
-- **Nearest-Rank p95**: 95th percentile computed using the nearest-rank method:
-  $$p95 = X_{\lceil 0.95 \times K \rceil}$$
-  where $X$ is the sorted array of valid numeric observations of length $K$.
+- **Nearest-Rank p95**: 95th percentile computed using the nearest-rank method over sorted valid observations of length $K$:
+  $$p95 = X_{\lceil 0.95 \times K \rceil - 1}$$
+  where $X$ is the zero-indexed sorted array (ascending) and indices are clamped to $[0, K-1]$. With a single sample ($K=1$), p95 is `null`.
 
 ---
 
@@ -127,4 +125,5 @@ Using `regression_pct`:
 - Token sources differ (e.g., comparing `usage` against `estimated`).
 - The benchmark repeat counts or scenario configurations do not match.
 - Runs occurred under parallel execution contention.
-</Warning>
+
+For the complete schema reference of how these metrics are persisted in run documents, transcripts, and export formats, see [Data Formats & Exports](data_formats.md).

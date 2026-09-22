@@ -6,17 +6,26 @@ from pathlib import Path
 
 import pytest
 from textual.pilot import Pilot
-from textual.widgets import DataTable, Input
+from textual.widget import Widget
+from textual.widgets import DataTable, Input, RichLog
 from textual.worker import WorkerState
 
 from llmsweep.config import Settings, resolve_config
+from llmsweep.metrics import TurnMetrics
 from llmsweep.models import ModelInfo, ModelRef
 from llmsweep.providers.lmstudio import LMStudio, sse
 from llmsweep.results import ModelResult, RunResult, SampleResult
 from llmsweep.runner import RunOptions, RunSession
 from llmsweep.store import RunStore, load_run
 from llmsweep.tui.app import SweepApp
-from llmsweep.tui.screens.main import LiveScreen, PickerScreen, ResultsScreen, TranscriptScreen
+from llmsweep.tui.screens.main import (
+    HelpScreen,
+    LiveScreen,
+    PickerScreen,
+    ResultsScreen,
+    TranscriptScreen,
+)
+from llmsweep.tui.widgets.chrome import StatusBar
 from tests.fakes.lmstudio import FakeLMStudio, completion, no_wait
 
 
@@ -45,7 +54,7 @@ async def test_cancel_mid_stream_keeps_app_and_cleans_instances(tmp_path: Path) 
     async with app.run_test(size=(100, 40)) as pilot:
         await until(pilot, lambda: bool(fake.chat_requests))
         assert isinstance(app.screen, LiveScreen) and fake.loaded
-        await pilot.press("ctrl+c")
+        await pilot.press("ctrl+q")
         assert app.is_running
         await pilot.press("ctrl+x")
         await until(pilot, lambda: isinstance(app.screen, ResultsScreen))
@@ -89,7 +98,11 @@ async def test_picker_uses_shared_selection_and_keys(tmp_path: Path) -> None:
         assert picker.selected == {ModelRef("lmstudio", "fixture")}
         assert picker.query_one(DataTable).row_count == 1
         await pilot.press("f1")
-        assert app.screen.query("HelpPanel")
+        assert isinstance(app.screen, HelpScreen)
+        scopes = {(action, scope) for _, action, scope in app.screen.rows}
+        assert ("Help", "Global") in scopes and ("Run selected", "PickerScreen") in scopes
+        await pilot.press("escape")
+        assert app.screen is picker
 
 
 async def test_resize_and_coalescing_preserve_output(tmp_path: Path) -> None:
@@ -113,6 +126,7 @@ async def test_resize_and_coalescing_preserve_output(tmp_path: Path) -> None:
         await pilot.resize_terminal(75, 28)
         await pilot.pause()
         assert card.output_text.count("x") == 750
+        assert card.rendered_text == card.output_text and card.query_one(RichLog).lines
         fake.gate.set()
         await until(pilot, lambda: isinstance(app.screen, ResultsScreen))
         assert card.output_text.count("x") == 1500
@@ -220,3 +234,179 @@ async def test_rerunning_one_model_preserves_sibling_worker(tmp_path: Path) -> N
         await pilot.press("ctrl+x")
         await until(pilot, lambda: isinstance(app.screen, ResultsScreen))
         assert fake.loaded == {"fixture": "preexisting", "second": "second-preexisting"}
+
+
+def focused(app: SweepApp) -> Widget | None:
+    """Read focus through a call so mypy does not narrow it between assertions."""
+    return app.focused
+
+
+def status_text(app: SweepApp) -> str:
+    bar = app.screen.query_one(StatusBar)
+    assert bar.shown is not None
+    return " ".join(bar.shown)
+
+
+def scored_model(
+    name: str,
+    *,
+    status: str = "completed",
+    success: bool = True,
+    speed: float = 50.0,
+    error: str | None = None,
+) -> ModelResult:
+    sample = SampleResult(
+        "codegen",
+        1,
+        status="completed",
+        success=success,
+        turns=[TurnMetrics(100.0, 100 / speed, 100, "usage", 120)],
+        total_s=3.0,
+    )
+    return ModelResult(
+        ModelInfo(ModelRef("lmstudio", name)),
+        status=status,
+        samples=[sample] if status == "completed" else [],
+        error=error,
+    )
+
+
+async def test_theme_setting_cycle_and_status_bar(tmp_path: Path) -> None:
+    run = RunResult("themed", "now", {}, [scored_model("m")], status="completed")
+    app = SweepApp(settings(tmp_path), saved_run=run)
+    async with app.run_test(size=(100, 35)) as pilot:
+        assert app.theme == "textual-dark"
+        assert "run completed" in status_text(app) and "theme textual-dark" in status_text(app)
+        await pilot.press("ctrl+t")
+        assert app.theme == "textual-light"
+        assert "theme textual-light" in status_text(app)
+    for requested, expected in (("nord", "nord"), ("no-such-theme", "textual-dark")):
+        configured = resolve_config(
+            {"theme": requested}, environ={}, project_dir=tmp_path, user_dir=tmp_path
+        )
+        app = SweepApp(configured, saved_run=run)
+        async with app.run_test(size=(100, 35)) as pilot:
+            await pilot.pause()
+            assert app.theme == expected
+
+
+async def test_results_filter_status_cycle_and_sort_marker(tmp_path: Path) -> None:
+    run = RunResult(
+        "filtered",
+        "now",
+        {},
+        [
+            scored_model("alpha-fast", speed=90),
+            scored_model("beta-slow", speed=20, success=False),
+            scored_model("gamma-broken", status="error", error="load failed"),
+        ],
+        status="completed",
+    )
+    app = SweepApp(settings(tmp_path), saved_run=run)
+    async with app.run_test(size=(120, 40)) as pilot:
+        screen = app.screen
+        assert isinstance(screen, ResultsScreen)
+        table = screen.query_one(DataTable)
+        assert focused(app) is table and table.row_count == 3
+        expected = {"passed": ["alpha-fast"], "failed": ["beta-slow"], "errors": ["gamma-broken"]}
+        for name, ids in expected.items():
+            await pilot.press("f")
+            assert screen.status_filter == name
+            assert [m.model.ref.id for m in screen.rows] == ids
+            assert name in status_text(app)
+        await pilot.press("f")
+        assert screen.status_filter == "all" and table.row_count == 3
+        await pilot.press("slash")
+        assert focused(app) is screen.query_one("#results-filter", Input)
+        await pilot.press("b", "e", "t", "a")
+        await pilot.pause()
+        assert [m.model.ref.id for m in screen.rows] == ["beta-slow"]
+        assert '"beta"' in status_text(app)
+        await pilot.press("enter")
+        assert focused(app) is table and type(app.screen) is ResultsScreen
+        await pilot.press("s")
+        assert screen.sort_by == "tok_s"
+        assert "tok/s ▼" in [column.label.plain for column in table.columns.values()]
+        assert "sort tok_s" in status_text(app)
+
+
+async def test_live_zoom_and_card_navigation(tmp_path: Path) -> None:
+    fake = FakeLMStudio(preloaded=True)
+    fake.extra_models = ["second"]
+    fake.loaded["second"] = "second-preexisting"
+    fake.gate = asyncio.Event()
+    fake.pause_after = 1
+    config = resolve_config(
+        {
+            "run_store": str(tmp_path),
+            "all": True,
+            "parallel": 2,
+            "no_warmup": True,
+            "scenarios": "codegen",
+        },
+        environ={},
+        project_dir=tmp_path,
+        user_dir=tmp_path,
+    )
+    app = SweepApp(config, provider=LMStudio(transport=fake.transport, sleep=no_wait))
+    first, second = ModelRef("lmstudio", "fixture"), ModelRef("lmstudio", "second")
+    async with app.run_test(size=(130, 45)) as pilot:
+        await until(pilot, lambda: len(fake.chat_requests) == 2)
+        live = app.live
+        assert live is not None and app.screen is live
+        await pilot.pause()
+        assert live.current_card() is live.cards[first]
+        await pilot.press("]")
+        assert live.current_card() is live.cards[second]
+        await pilot.press("z")
+        await pilot.pause()
+        assert live.has_class("zoomed") and live.cards[second].has_class("zoom-target")
+        assert not live.cards[first].display and live.cards[second].display
+        assert "zoomed on lmstudio:second" in status_text(app)
+        await pilot.press("[")
+        await pilot.pause()
+        assert live.cards[first].has_class("zoom-target") and live.cards[first].display
+        assert not live.cards[second].display
+        await pilot.press("z")
+        await pilot.pause()
+        assert not live.has_class("zoomed") and live.cards[second].display
+        assert "zoomed" not in status_text(app)
+        await pilot.press("ctrl+x")
+        await until(pilot, lambda: isinstance(app.screen, ResultsScreen))
+
+
+async def test_picker_bulk_selection_and_search_focus(tmp_path: Path) -> None:
+    fake = FakeLMStudio(preloaded=True)
+    fake.extra_models = ["second"]
+    fake.loaded["second"] = "second-preexisting"
+    app = SweepApp(
+        settings(tmp_path, all_models=False),
+        provider=LMStudio(transport=fake.transport, sleep=no_wait),
+    )
+    async with app.run_test(size=(100, 35)) as pilot:
+        await until(pilot, lambda: app.discovered)
+        picker = app.screen
+        assert isinstance(picker, PickerScreen)
+        table = picker.query_one(DataTable)
+        assert focused(app) is table
+        await pilot.press("a")
+        assert picker.selected == {ModelRef("lmstudio", "fixture"), ModelRef("lmstudio", "second")}
+        assert "2 selected" in status_text(app)
+        await pilot.press("x")
+        assert picker.selected == set() and "0 selected" in status_text(app)
+        await pilot.press("slash")
+        assert focused(app) is picker.query_one("#model-search", Input)
+        await pilot.press("escape")
+        assert focused(app) is table
+
+
+async def test_ctrl_c_quits_cleanly_and_ctrl_q_only_hints(tmp_path: Path) -> None:
+    run = RunResult("quit", "now", {}, [scored_model("m")], status="completed")
+    app = SweepApp(settings(tmp_path), saved_run=run)
+    async with app.run_test(size=(100, 35)) as pilot:
+        await pilot.press("ctrl+q")
+        await pilot.pause()
+        assert app.is_running and type(app.screen) is ResultsScreen
+        await pilot.press("ctrl+c")
+        await until(pilot, lambda: not app.is_running)
+    assert app.return_code == 0

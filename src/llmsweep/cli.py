@@ -44,6 +44,8 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--run-store", type=Path)
         command.add_argument("--no-color", action="store_true", default=None)
         command.add_argument("--plain", action="store_true", default=None)
+        if name in ("run", "show"):
+            command.add_argument("--theme")
         if name in ("run", "list", "doctor"):
             command.add_argument("--provider")
             command.add_argument("--providers")

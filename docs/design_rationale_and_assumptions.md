@@ -67,3 +67,6 @@ This document explains the architectural decisions, design trade-offs, and resol
 ### Serial vs Parallel Execution
 - **Rationale**: Running multiple local LLM benchmarks simultaneously causes GPU memory contention, context thrashing, and inaccurate latency measurements.
 - **Decision**: Serial execution is the default. Parallel execution is permitted via `--parallel` only when the user explicitly enables it and all target models are preloaded.
+
+
+For implementation-level details on verification strategies, store internals, event handling, and resolved ambiguities from a code perspective, see [Implementation Design & Assumptions](design.md). For the complete schema reference of persisted run documents, transcripts, and export formats, see [Data Formats & Exports](data_formats.md).

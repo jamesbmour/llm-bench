@@ -56,3 +56,19 @@ def test_task_and_inapplicable_flags(tmp_path: Path) -> None:
     for args in cases:
         with pytest.raises(ConfigError):
             resolve_config(args, environ={}, **kwargs)
+
+
+def test_theme_setting(tmp_path: Path) -> None:
+    from_env = resolve_config(
+        {}, environ={"LLMSWEEP_THEME": "nord"}, project_dir=tmp_path, user_dir=tmp_path
+    )
+    assert from_env.values["theme"] == "nord"
+    from_cli = resolve_config(
+        {"theme": "gruvbox"}, environ={}, project_dir=tmp_path, user_dir=tmp_path
+    )
+    assert from_cli.values["theme"] == "gruvbox"
+    assert resolve_config({}, environ={}, project_dir=tmp_path, user_dir=tmp_path).values[
+        "theme"
+    ] == ("textual-dark")
+    with pytest.raises(ConfigError):
+        resolve_config({"theme": "  "}, environ={}, project_dir=tmp_path, user_dir=tmp_path)

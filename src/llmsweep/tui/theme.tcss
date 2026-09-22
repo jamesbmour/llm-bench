@@ -1,38 +1,135 @@
-Screen {
-    background: #0b1019;
-    color: #dce6f1;
-}
-Header { background: #121f30; }
-Footer { background: #121f30; }
-.page-title { height: 3; padding: 1 2; color: #7edbcc; text-style: bold; }
-PickerScreen { padding: 0 1; }
-#model-picker { height: 1fr; border: round #29445b; }
-#model-search, #model-selection { margin: 0 1; }
-#selection-summary { height: auto; min-height: 2; padding: 0 2; }
-#run-selected { margin: 0 2 1 2; }
-#run-clock { height: 1; padding: 0 2; }
-#run-progress { margin: 0 2; height: 1; }
-#live-scroll { height: 1fr; }
-#card-grid { layout: grid; grid-size: 2; grid-gutter: 1; height: auto; padding: 1; }
-.narrow #card-grid { grid-size: 1; }
-ModelCard { height: 27; border: round #29445b; background: #101b29; padding: 0 1; }
-.card-title { height: 2; padding: 1 0 0 0; color: #7edbcc; text-style: bold; }
-.card-status { height: 2; color: #aabbd0; }
-.stream-pane { height: 1fr; min-height: 5; background: #0b1019; }
-.speed-graph { height: 2; color: #7edbcc; }
-.tool-timeline { height: 6; }
-#verbose-log { height: 7; margin: 0 1; border: round #29445b; }
-#results-table { height: 1fr; margin: 1 2; border: round #29445b; }
-#results-description { height: 2; padding: 0 2; color: #aabbd0; }
-#results-detail { height: auto; max-height: 12; padding: 0 2 1 2; }
-ModalScreen { align: center middle; background: #000000 65%; }
-.dialog { width: 90%; height: 85%; padding: 1 2; border: thick #29445b; background: #101b29; }
-.dialog RichLog { height: 1fr; }
-#transcript-title { height: 2; text-style: bold; }
-.path-dialog { width: 80%; height: auto; padding: 1 2; border: thick #29445b; background: #101b29; }
-.path-dialog Static { height: 2; }
-.path-dialog Input { margin: 1 0; }
-HelpPanel { dock: right; width: 35; background: #101b29; border-left: solid #29445b; }
-.monochrome Screen, .monochrome Screen * { color: white; background: black; border: none; }
+/* Every color is a theme variable so Ctrl+T (or --theme) re-skins the whole application. */
 
-.app-header { height: 1; padding: 0 2; background: #121f30; color: #aabbd0; }
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+/* ── Chrome ─────────────────────────────────────────────────────────────── */
+TitleBar { height: 1; padding: 0 2; background: $primary 20%; }
+.title-brand { width: auto; padding: 0 1 0 0; color: $primary; text-style: bold; }
+.title-screen { width: 1fr; color: $text; text-style: bold; }
+.title-context { width: 1fr; text-align: right; color: $text-muted; }
+StatusBar { height: 1; padding: 0 2; background: $panel; color: $text-muted; }
+.status-left { width: 1fr; }
+.status-right { width: auto; text-align: right; }
+.section-note { height: 2; padding: 1 2 0 2; color: $text-muted; }
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+Input { border-title-color: $text-muted; border-title-style: bold; }
+Input:focus { border-title-color: $primary; }
+
+/* ── Picker ─────────────────────────────────────────────────────────────── */
+#picker-inputs { height: 3; margin: 0 1; }
+#picker-inputs Input { width: 1fr; margin: 0 1; }
+#model-picker { height: 1fr; margin: 0 2; border: round $border; background: $surface; }
+#picker-footer { height: 3; margin: 0 2; }
+#selection-summary { width: 1fr; height: 3; padding: 1 1 0 0; color: $text; }
+#run-selected { width: auto; }
+
+/* ── Live ───────────────────────────────────────────────────────────────── */
+#run-header { height: 1; margin: 1 2 0 2; }
+#run-clock { width: auto; padding: 0 2 0 0; color: $text; }
+#run-progress { width: 1fr; height: 1; }
+#run-progress Bar { width: 1fr; }
+#live-scroll { height: 1fr; }
+/* grid-rows must match ModelCard height: an auto-height grid sizes rows from child content,
+   not from the child's declared height, which would clip the sparkline and tool timeline. */
+#card-grid {
+    layout: grid;
+    grid-size: 2;
+    grid-rows: 27;
+    grid-gutter: 1 2;
+    height: auto;
+    padding: 1 2;
+}
+.narrow #card-grid { grid-size: 1; }
+.zoomed #card-grid { grid-size: 1; grid-rows: 1fr; height: 1fr; }
+.zoomed ModelCard { display: none; }
+.zoomed ModelCard.zoom-target { display: block; height: 1fr; }
+ModelCard {
+    height: 27;
+    padding: 0 1;
+    border: round $border;
+    border-title-color: $text;
+    border-title-style: bold;
+    background: $surface;
+}
+ModelCard.status-running { border: round $primary; }
+ModelCard.status-completed { border: round $success; }
+ModelCard.status-error { border: round $error; }
+ModelCard.status-cancelled { border: round $warning; }
+ModelCard:focus { background: $surface-lighten-1; border-title-style: bold reverse; }
+.card-status { height: 1; }
+.card-state { width: auto; padding: 0 1 0 0; color: $text-muted; text-style: bold; }
+.status-running .card-state { color: $primary; }
+.status-completed .card-state { color: $success; }
+.status-error .card-state { color: $error; }
+.status-cancelled .card-state { color: $warning; }
+.card-progress { width: 1fr; color: $text; }
+.card-metrics { height: 1; color: $text-muted; }
+.stream-pane { height: 1fr; min-height: 6; margin: 0 0 1 0; background: $background; }
+.speed-graph { height: 2; }
+.speed-graph > .sparkline--max-color { color: $primary; }
+.speed-graph > .sparkline--min-color { color: $primary 30%; }
+.tool-timeline { height: 5; }
+#verbose-log { height: 7; margin: 0 2; border: round $border; background: $surface; }
+
+/* ── Results ────────────────────────────────────────────────────────────── */
+#results-filter { margin: 0 2; }
+#results-description { height: 1; padding: 0 2; color: $text-muted; }
+#results-table { height: 1fr; margin: 0 2; border: round $border; background: $surface; }
+#results-detail {
+    height: auto;
+    max-height: 10;
+    margin: 0 2;
+    padding: 0 1;
+    border-top: solid $border;
+    color: $text-muted;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────────── */
+DataTable > .datatable--header { background: $panel; color: $text; text-style: bold; }
+DataTable > .datatable--cursor { background: $primary 30%; color: $text; }
+DataTable:focus > .datatable--cursor { background: $primary 55%; }
+
+/* ── Dialogs ────────────────────────────────────────────────────────────── */
+ModalScreen { align: center middle; background: $background 70%; }
+.dialog {
+    width: 90%;
+    height: 85%;
+    padding: 1 2;
+    border: thick $primary;
+    border-title-color: $primary;
+    border-title-style: bold;
+    background: $surface;
+}
+.dialog RichLog { height: 1fr; background: $background; }
+#transcript-title { height: 2; color: $text; text-style: bold; }
+.path-dialog {
+    width: 80%;
+    height: auto;
+    padding: 1 2;
+    border: thick $primary;
+    border-title-color: $primary;
+    border-title-style: bold;
+    background: $surface;
+}
+.path-dialog Static { height: 2; color: $text; }
+.path-dialog Input { margin: 0 0 1 0; }
+.help-dialog { width: 84%; }
+#help-bindings { height: 1fr; background: $background; }
+#help-legend { height: auto; padding: 1 0 0 0; color: $text-muted; }
+
+/* ── Monochrome (--no-color / NO_COLOR) ─────────────────────────────────── */
+.monochrome Screen, .monochrome Screen * { color: white; background: black; border: none; }
+.monochrome ModelCard, .monochrome .dialog, .monochrome .path-dialog, .monochrome Input,
+.monochrome #model-picker, .monochrome #results-table, .monochrome #verbose-log {
+    border: round white;
+    border-title-color: white;
+}
+.monochrome #results-detail { border-top: solid white; }
+.monochrome DataTable > .datatable--header { text-style: bold underline; }
+.monochrome DataTable > .datatable--cursor { background: white; color: black; }
+.monochrome Sparkline > .sparkline--max-color { color: white; }
+.monochrome Sparkline > .sparkline--min-color { color: white 50%; }

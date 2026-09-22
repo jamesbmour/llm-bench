@@ -554,8 +554,8 @@ Running `llmsweep run` in an interactive terminal opens the full Textual TUI:
 | `Tab` / `Shift+Tab` | Move widget focus |
 | `[`, `]`, `z` on Live | Previous card, next card, zoom the focused card to the full screen |
 | `Ctrl+X`, `Esc` on Live | Cancel, clean up run-owned instances, and save partial results |
-| `Ctrl+C` | Show the quit/cancel reminder |
-| `Ctrl+Q` | Clean up and quit |
+| `Ctrl+C` | Clean up run-owned instances and quit |
+| `Ctrl+Q` | Show the quit/cancel reminder |
 | `Ctrl+T` | Cycle the color theme (`--theme NAME`, `LLMSWEEP_THEME`, or `theme` in `llmsweep.toml` set the start theme) |
 | `F1`, `?` | Toggle the help overlay: active shortcuts plus the metric and status legend |
 | `s`, `/`, `f` on Results | Cycle sort (the sorted column is marked ▲/▼); filter by text; cycle all/passed/failed/errors |
