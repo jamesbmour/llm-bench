@@ -1,3 +1,5 @@
+"""Scenario workspaces and bounded checker subprocesses."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +13,8 @@ from typing import Any, ClassVar
 
 
 class Scenario:
+    """Context-managed temporary workspace and deterministic tool/scoring interface."""
+
     name = ""
     prompt = ""
     max_turns = 1

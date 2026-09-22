@@ -1,3 +1,5 @@
+"""Argument parsing and terminal-mode selection before UI construction."""
+
 from __future__ import annotations
 
 import argparse
@@ -163,7 +165,9 @@ async def online(args: argparse.Namespace, settings: Settings) -> int:
             return 0
         if args.command == "list":
             selected = resolve_selection(v["models"], models) if v["models"] else models
-            render_models(selected, sys.stdout)
+            buffer = io.StringIO()
+            render_models(selected, buffer)
+            print(provider.redact(buffer.getvalue()), end="")
             return 0
         if not v["models"] and not v["all"]:
             raise ConfigError(
@@ -216,7 +220,9 @@ def main(argv: list[str] | None = None) -> int:
 
                     SweepApp(settings, saved_run=run).run()
                 else:
-                    render_run(run, sys.stdout, settings.values["sort_by"])
+                    buffer = io.StringIO()
+                    render_run(run, buffer, settings.values["sort_by"])
+                    print(Redactor(settings.api_key)(buffer.getvalue()), end="")
             exports(args, run, settings)
             return run.exit_code(settings.values["fail_on_regression"])
         if args.command == "run":

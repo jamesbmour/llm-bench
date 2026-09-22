@@ -1,3 +1,5 @@
+"""Strict TOML, environment, and command-line configuration resolution."""
+
 from __future__ import annotations
 
 import math
@@ -52,6 +54,8 @@ FLOAT_KEYS = {"timeout", "load_timeout"}
 
 @dataclass(frozen=True)
 class Settings:
+    """Resolved configuration with credentials excluded from its representation."""
+
     values: dict[str, Any]
     api_key: str | None = field(default=None, repr=False)
     thresholds: tuple[float, float] = (5, 5)

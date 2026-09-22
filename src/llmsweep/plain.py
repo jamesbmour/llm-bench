@@ -1,3 +1,5 @@
+"""Greppable tables and portable exports of runner-owned results."""
+
 from __future__ import annotations
 
 import csv

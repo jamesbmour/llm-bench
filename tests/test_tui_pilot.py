@@ -186,6 +186,7 @@ async def test_rerunning_one_model_preserves_sibling_worker(tmp_path: Path) -> N
     fake.extra_models = ["second"]
     fake.loaded["second"] = "second-preexisting"
     fake.gate = asyncio.Event()
+    fake.pause_after = 1
     config = resolve_config(
         {
             "run_store": str(tmp_path),
@@ -204,10 +205,17 @@ async def test_rerunning_one_model_preserves_sibling_worker(tmp_path: Path) -> N
         await until(pilot, lambda: len(fake.chat_requests) == 2)
         original = app.model_workers[first]
         sibling = app.model_workers[second]
+        await until(
+            pilot, lambda: app.live is not None and bool(app.live.cards[second].output_text)
+        )
+        assert app.live is not None
+        sibling_output = app.live.cards[second].output_text
         app.rerun_model(first)
         await until(pilot, lambda: len(fake.chat_requests) == 3)
         assert original.is_cancelled
         assert app.model_workers[second] is sibling and not sibling.is_cancelled
+        await until(pilot, lambda: app.live is not None and second in app.live.cards)
+        assert app.live.cards[second].output_text == sibling_output
         assert app.is_running
         await pilot.press("ctrl+x")
         await until(pilot, lambda: isinstance(app.screen, ResultsScreen))

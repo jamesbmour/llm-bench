@@ -1,3 +1,5 @@
+"""Terminal navigation and presentation without benchmark execution logic."""
+
 from __future__ import annotations
 
 import contextlib
@@ -25,12 +27,16 @@ if TYPE_CHECKING:
 
 
 class SweepScreen(Screen[None]):
+    """Base screen with a typed reference to the application controller."""
+
     @property
     def controller(self) -> SweepApp:
         return cast("SweepApp", self.app)
 
 
 class PickerScreen(SweepScreen):
+    """Select eligible models using the same resolver as command-line runs."""
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("slash", "search", "Search"),
         Binding("space", "select_model", "Select"),
@@ -160,13 +166,18 @@ class PickerScreen(SweepScreen):
 
 
 class LiveScreen(SweepScreen):
+    """Display buffered progress for all active models."""
+
     ESCAPE_TO_MINIMIZE = False
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "app.cancel_run", "Cancel")]
 
-    def __init__(self, results: list[ModelResult]) -> None:
+    def __init__(
+        self, results: list[ModelResult], previous: dict[ModelRef, ModelCard] | None = None
+    ) -> None:
         super().__init__()
         self.results = results
         self.cards: dict[ModelRef, ModelCard] = {}
+        self.previous = previous or {}
 
     def compose(self) -> ComposeResult:
         yield Static("llmsweep / local model benchmarks", classes="app-header")
@@ -176,6 +187,14 @@ class LiveScreen(SweepScreen):
         with VerticalScroll(id="live-scroll"), Container(id="card-grid"):
             for result in self.results:
                 card = ModelCard(result, self.controller.redact)
+                previous = self.previous.get(result.model.ref)
+                if previous:
+                    card.output_text = previous.output_text
+                    card.tool_rows = previous.timeline_history.copy()
+                    card.timeline_history = previous.timeline_history.copy()
+                    card.turn, card.scenario = previous.turn, previous.scenario
+                    card.speeds.extend(previous.speeds)
+                    card.live_speed = previous.live_speed
                 self.cards[result.model.ref] = card
                 yield card
         yield RichLog(id="verbose-log", wrap=True, markup=False, highlight=False)
@@ -190,6 +209,8 @@ class LiveScreen(SweepScreen):
 
 
 class ResultsScreen(SweepScreen):
+    """Sort and inspect persisted model outcomes."""
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("s", "sort", "Sort"),
         Binding("enter", "transcript", "Transcript"),
@@ -294,6 +315,8 @@ class ResultsScreen(SweepScreen):
 
 
 class TranscriptScreen(ModalScreen[None]):
+    """Browse repeat transcripts with formatted tool JSON."""
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss", "Close"),
         Binding("n", "next", "Next repeat"),
@@ -362,6 +385,8 @@ class TranscriptScreen(ModalScreen[None]):
 
 
 class PathDialog(ModalScreen[str | None]):
+    """Collect a filesystem path within a worker-owned modal."""
+
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "cancel", "Cancel")]
 
     def __init__(self, title: str, initial: str = "") -> None:
@@ -389,6 +414,8 @@ class PathDialog(ModalScreen[str | None]):
 
 
 class DiffScreen(ModalScreen[None]):
+    """Present baseline verdicts with text as well as symbols."""
+
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "dismiss", "Close")]
 
     def __init__(self, comparisons: list[dict[str, object]]) -> None:

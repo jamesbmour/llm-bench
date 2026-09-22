@@ -1,3 +1,5 @@
+"""Provider protocol and explicit ownership of loaded instances."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -11,6 +13,8 @@ from llmsweep.streams import StreamEvent
 
 @dataclass
 class Lease:
+    """An instance reference recording whether this run owns its lifecycle."""
+
     model: ModelInfo
     instance_id: str | None = None
     we_loaded: bool = False
@@ -24,10 +28,14 @@ class Lease:
 
 
 class Provider(Protocol):
+    """Async transport contract consumed by the renderer-independent runner."""
+
     redact: Redactor
 
     async def list_models(self) -> list[ModelInfo]: ...
-    async def acquire(self, model: ModelInfo, load_deadline: float) -> Lease: ...
+    async def acquire(
+        self, model: ModelInfo, load_deadline: float, *, allow_load: bool = True
+    ) -> Lease: ...
     async def release(self, lease: Lease) -> None: ...
     async def close(self) -> None: ...
     def chat(

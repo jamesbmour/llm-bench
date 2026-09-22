@@ -1,3 +1,5 @@
+"""Shared model and scenario selection rules for CLI and TUI."""
+
 from __future__ import annotations
 
 import re

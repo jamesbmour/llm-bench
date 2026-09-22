@@ -1,3 +1,5 @@
+"""Coalesced streaming output, tool timeline, and throughput sparkline."""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +16,8 @@ from llmsweep.security import Redactor
 
 
 class ModelCard(Vertical):
+    """Present one model using a tick-flushed stream buffer."""
+
     def __init__(self, result: ModelResult, redact: Redactor) -> None:
         super().__init__()
         self.result = result
@@ -22,6 +26,7 @@ class ModelCard(Vertical):
         self.rendered_text = ""
         self.buffer: list[str] = []
         self.tool_rows: list[tuple[str, str, str]] = []
+        self.timeline_history: list[tuple[str, str, str]] = []
         self.turn = 0
         self.scenario = "pending"
         self.updates = 0
@@ -51,18 +56,21 @@ class ModelCard(Vertical):
         elif event.kind == "tool":
             parsed = json.loads(event.text)
             state = "error" if "error" in parsed["result"] else "ok"
-            self.tool_rows.append((str(event.turn), event.tool, state))
+            row = (str(event.turn), event.tool, state)
+            self.tool_rows.append(row)
+            self.timeline_history.append(row)
 
     def flush(self, elapsed: float) -> None:
         changed = bool(self.buffer)
         if changed:
             self.output_text += "".join(self.buffer)
             self.buffer.clear()
-            clean = self.redact(self.output_text)
-            reserve = max((len(key) for key in self.redact.secrets), default=0)
-            if reserve and self.result.status == "running":
-                clean = clean[:-reserve] if len(clean) > reserve else ""
-            self.rendered_text = clean
+        clean = self.redact(self.output_text)
+        reserve = max((len(key) for key in self.redact.secrets), default=0)
+        if reserve and self.result.status == "running":
+            clean = clean[:-reserve] if len(clean) > reserve else ""
+        changed |= self.rendered_text != clean
+        self.rendered_text = clean
         if not self.is_mounted or not self.query(DataTable):
             return
         if changed:

@@ -1,3 +1,5 @@
+"""Atomic schema-versioned run storage, transcripts, and historical ETA lookup."""
+
 from __future__ import annotations
 
 import fcntl
@@ -49,6 +51,8 @@ def transcript_name(ref: ModelRef, scenario: str, repeat: int) -> str:
 
 
 class RunStore:
+    """Persist canonical run documents and provider-qualified transcripts atomically."""
+
     def __init__(
         self,
         root: Path | None = None,

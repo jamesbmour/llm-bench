@@ -1,3 +1,5 @@
+"""Deterministically scored scenario registry."""
+
 from __future__ import annotations
 
 from .agent_code import AgentCode

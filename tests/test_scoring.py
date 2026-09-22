@@ -60,6 +60,7 @@ async def test_agent_code_guards_and_scoring(tmp_path: Path) -> None:
     [
         ("def fib(n):\n    return n", False),
         ("Here is the fibonacci function you asked for.", False),
+        ("import sys\nsys.exit(0)", False),
         (
             "```python\ndef fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a+b\n    return a\n```",
             True,

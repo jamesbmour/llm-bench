@@ -68,7 +68,7 @@ Rather than relying on synthetic prompts or server-side API optimism, `llmsweep`
 
 ```mermaid
 flowchart LR
-    A["Discovery & Selection\n(/v1/models)"] --> B["Acquire & Load\n(Readiness polling)"]
+    A["Discovery & Selection\n(/api/v1/models)"] --> B["Acquire & Load\n(Readiness polling)"]
     B --> C["Warmup Turn\n(Cache initialization)"]
     C --> D{"Scenarios"}
     D --> D1["1. weather\n(Tool calling)"]
@@ -87,7 +87,7 @@ flowchart LR
 
 - 🛠️ **Three Dedicated Scenarios**:
   - **`weather`**: Multi-turn OpenAI-compatible function calling with parameter validation and regex verification.
-  - **`agent-code`**: Agentic workspace inspection (`list_files`, `read_file`, `grep_files`), guarded bug fixing (`write_file`), and independent test runner verification.
+  - **`agent-code`**: Agentic workspace inspection (`list_files`, `read_file`, `grep`), guarded bug fixing (`write_file`), and independent test runner verification.
   - **`codegen`**: Algorithmic Python synthesis from strict specifications, validated inside a sandboxed subprocess with execution timeouts.
 - ⏱️ **Client-Observed Measurement Fidelity**:
   - Dispatched-to-first-token latency (**TTFT**), excluding role-only headers and empty usage frames.
@@ -97,12 +97,12 @@ flowchart LR
 - 🔄 **Lifecycle & Resource Protection**:
   - Automated loading with 1-second readiness polling and load duration tracking.
   - Primes compute pipelines and KV-caches with a single warmup query.
-  - Guaranteed idempotent unload: only unloads instances created during the active benchmark run, preserving pre-existing models.
+  - Idempotent unload with verification: only unloads instances created during the active benchmark run, preserving pre-existing models.
 - 🖥️ **Dual Interface**:
-  - **Textual TUI**: Interactive Model Picker, live streaming dashboard (buffered at 75 ms intervals for 1000+ deltas/sec), latency sparklines, and transcript inspector.
+  - **Textual TUI**: Interactive Model Picker, live streaming dashboard (buffered at 75 ms intervals for 1000+ deltas/sec), throughput sparklines, and transcript inspector.
   - **Plain CLI**: Pipeable, deterministic, ANSI-free plain text tables ideal for terminal scripts, redirected logs, and CI pipelines.
 - 📉 **Regression Gating**:
-  - Compare results against historical `--baseline` runs. Automatically flags regressions $> 5\%$ on scenario means and exits with code `3`.
+  - Compare results against historical `--baseline` runs. Automatically flags regressions $> 5\%$ on scenario means and, with `--fail-on-regression`, exits with code `3`.
 - 💾 **Local Offline Storage**:
   - Fully schema-versioned runs and turn-by-turn transcripts written atomically to disk. View or export (`json`, `csv`, `markdown`) completely offline.
 
@@ -110,20 +110,11 @@ flowchart LR
 
 ## Terminal Preview
 
-```text
-╭─────────────────────────────────── llmsweep v1.0.0 ────────────────────────────────────╮
-│ Target: http://localhost:1234 (API v1)  •  Scenarios: weather, agent-code, codegen     │
-╰────────────────────────────────────────────────────────────────────────────────────────╯
+![Textual results screen](docs/assets/tui.svg)
 
-Model Ref                        Params   Load (s)   TTFT (ms)    Tok/s    Weather  Agent    Codegen   Overall
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-qwen2.5-coder-7b-instruct         7.6B      4.12s      184ms      68.4      Pass     Pass     Pass      3/3
-deepseek-coder-6.7b-instruct      6.7B      3.89s      210ms      57.2      Pass     Pass     Pass      3/3
-llama-3.2-3b-instruct             3.2B      1.85s      112ms      96.1      Pass     Fail     Pass      2/3
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Summary: 3 models evaluated, 9 scenario samples completed, 0 runtime errors.
-Run persisted to ~/.local/share/llmsweep/runs/20260922_041012_lmstudio.json
-```
+Captured from `App.export_screenshot()` in a headless Textual session. The displayed
+model names and measurements are deterministic demonstration fixtures, not live benchmark claims.
+Regenerate with `uv run --extra dev python -m tests.capture_screenshot`.
 
 ---
 
@@ -194,11 +185,11 @@ All domain models, selection logic, stream decoders, and metrics calculators in 
 
 `llmsweep` connects to local inference engines via an asynchronous `httpx` adapter adhering to a strict provider lifecycle interface.
 
-- **Discovery & Version Negotiation**: Discovery begins against the **LM Studio v1 API** (`/v1/models`). If an `UnsupportedEndpointError` (HTTP 404) is received, the client gracefully falls back to the legacy **v0 API**. Network timeouts, transport errors, or authentication failures do not trigger fallback.
+- **Discovery & Version Negotiation**: Discovery begins against the **LM Studio v1 API** (`/api/v1/models`). If an HTTP 404, 405, or 501 is received, the client gracefully falls back to the legacy **v0 API**. Network timeouts, transport errors, or authentication failures do not trigger fallback.
 - **Cold / Preloaded Detection**: The provider snapshots all loaded model instances before initiating tests.
 - **Instance Loading**: When an unloaded model is required, the provider issues a load request, extracts the unique runtime instance ID, and polls readiness every 1.0 second until the model is operational or the load deadline expires.
-- **Warmup Turn**: A single-token warm-up query is issued prior to scenario execution to ensure weights, KV-caches, and compute buffers are fully resident in VRAM.
-- **Idempotent Cleanup**: When execution finishes (or when aborted via `Ctrl+C`), `llmsweep` unloads *only* instances spawned during the current session, verifying their deallocation. Preloaded user models remain untouched.
+- **Warmup Turn**: One `max_tokens: 8` warmup query is issued prior to scenario execution to ensure weights, KV-caches, and compute buffers are fully resident in VRAM.
+- **Idempotent Cleanup**: When execution finishes (or when cancelled via `Ctrl+X` in the TUI), `llmsweep` unloads *only* instances spawned during the current session, verifying their deallocation. Preloaded user models remain untouched.
 
 ### 3. Core Runner & Scenario Engine
 
@@ -210,11 +201,11 @@ The central `Runner` coordinates benchmark orchestration, timing, and isolated s
 
 ### 4. Run Storage & Persistence
 
-Benchmark results and full conversation transcripts are written to disk with atomic safety guarantees.
+Benchmark results and conversation transcripts are written to disk with atomic safety guarantees.
 
 - **Storage Format**: Schema-versioned JSON documents written under the platform-specific data directory (`~/.local/share/llmsweep` on Linux, `~/Library/Application Support/llmsweep` on macOS).
 - **Atomic Writes**: Runs and transcripts are written to temporary sibling files and committed using atomic file replacement (`os.replace`) to ensure crash resilience.
-- **Transcripts**: Full turn-by-turn prompts, tool schemas, tool execution outputs, model thought processes, and raw completions are preserved for offline post-mortem debugging.
+- **Transcripts**: Full turn-by-turn prompts, tool execution outputs, model thought processes, and raw completions are preserved for offline post-mortem debugging.
 - **Offline Inspection**: The `llmsweep show` and `llmsweep export` commands read directly from the local store without requiring an active LM Studio connection.
 
 ### 5. UI & Presentation Decoupling
@@ -244,96 +235,59 @@ sequenceDiagram
 
 ## Benchmark Scenarios
 
-`llmsweep` tests models against three distinct workloads that probe tool-calling fidelity, multi-step problem solving, and raw code generation.
+All scoring is deterministic. Each scenario repeat receives fresh conversation
+history and a temporary workspace that is removed on completion, error, or cancellation.
 
-### Scenario Overview
+| Scenario | Turns | Pass condition |
+| --- | --- | --- |
+| `weather` | 6 | All three tools called and final answer matches the Fahrenheit expression below. |
+| `agent-code` | 10 | `write_file` called and the canonical tests pass on an independent rerun. |
+| `codegen` | 1 | Extracted `fib(n)` passes every checker assertion within 15 seconds. |
 
-| Scenario | Paradigm | Default Turns | Tool Calling | Primary Verification |
-| :--- | :--- | :---: | :---: | :--- |
-| **`weather`** | Multi-Turn Tool Use | 6 | `get_weather` | Tool schema compliance + regex temperature verification. |
-| **`agent-code`** | Autonomous Agentic Coding | 10 | Filesystem & Search Tools | Guarded file modification + independent test suite rerun. |
-| **`codegen`** | Algorithmic Code Synthesis | 1 | None | Subprocess execution with strict test cases and 15s timeout. |
+### `weather`
 
----
+The task requests Paris weather, conversion to Fahrenheit, and the current time
+in `Europe/Paris`, followed by one closing sentence. Tools are:
 
-### `weather` — Structured Tool Calling
+- `get_weather(city)`: Paris returns 18.0 °C, partly cloudy.
+- `convert_temperature(value, from_unit, to_unit)`: supports `c`, `f`, and `k`; rounds to two decimals.
+- `get_current_time(timezone)`: uses `zoneinfo`; invalid zones return a clean tool error.
 
-The `weather` scenario assesses a model's ability to interpret system instructions, formulate syntactically valid JSON tool calls matching OpenAI function schemas, parse tool responses, and synthesize a coherent natural-language reply.
+Pass requires all three tool names and a case-insensitive match of
+`64(\.4)?\s*(°|deg(rees)?)?\s*f` in the final answer. The time text is not independently
+scored. `--task` selects weather with custom instructions and reports success as `n/a`.
 
-#### Tool Definition
-The model is supplied with a mock weather service tool:
+### `agent-code`
 
-```json
-{
-  "name": "get_weather",
-  "description": "Get the current weather and temperature for a given city.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "location": {
-        "type": "string",
-        "description": "The city and state/country, e.g. 'San Francisco, CA' or 'Tokyo'."
-      },
-      "unit": {
-        "type": "string",
-        "enum": ["celsius", "fahrenheit"],
-        "description": "Temperature scale to return."
-      }
-    },
-    "required": ["location"]
-  }
-}
-```
+The workspace contains `README.md`, `buggy.py`, and `tests.py`. The defect is
+`range(1, len(items))` in `total(items)`, which skips the first value.
 
-#### Execution Flow & Scoring
-1. **User Query**: The model is asked to compare the weather or temperature between target locations (e.g., *"What is the weather in Tokyo and Paris right now?"*).
-2. **Tool Invocation**: The model must issue one or more valid `get_weather` calls with expected location parameters.
-3. **Simulated Return**: The runner executes the mock tool and returns realistic JSON data back to the model as a `tool` role message.
-4. **Final Synthesis**: The model summarizes the results in a conversational response.
-5. **Scoring**: Validates that `get_weather` was invoked with valid arguments, and applies regular expressions to ensure reported temperatures match mock values without hallucinations.
-6. **Custom Task Flag (`--task`)**: Supplying `--task "Custom prompt..."` allows testing arbitrary single-tool interactions. When `--task` is supplied, automatic scoring is disabled and cannot be combined with other scenarios.
+- `list_files()` lists workspace files.
+- `read_file(path)` truncates at 4,000 characters.
+- `grep(pattern, path?)` caps matches at 50 and reports `truncated`.
+- `write_file(path, content)` accepts only `buggy.py`; other files return a read-only error.
+- `run_tests()` returns `passed` and the last 500 output characters.
 
----
+Tools reject absolute paths, traversal, and paths resolving outside the workspace.
+The independent canonical tests assert totals for `[1,2,3]`, `[]`, `[5]`, `[-1,1,0]`,
+and `range(100)`. A write call and a successful checker exit are both required.
+The checker must reach its completion marker; early process exit is not a pass.
 
-### `agent-code` — Autonomous Bug Fixing
+### `codegen`
 
-The `agent-code` scenario models an interactive developer agent working in an unfamiliar repository. The model must navigate a workspace, locate an error, modify code, and verify its changes.
+One completion is asked for a fenced Python block defining `fib(n)`. The first
+fenced block is extracted; without a fence, the whole trimmed answer is used.
+Unfenced valid Python may pass; prose and `return n` fail. The checker asserts
+`fib(0)==0`, `fib(1)==1`, the first ten Fibonacci numbers, `fib(20)==6765`, and exact
+`int` return types for the first ten values. Timeout reports `checker timed out`.
+Negative inputs and `fib(100)` are not part of this benchmark.
 
-#### Workspace & Provided Tools
-A clean temporary workspace containing a Python project with a deliberate defect and a failing unit test suite is initialized for each run. The model is equipped with:
-- **`list_files(directory: str = ".")`**: Lists files and subdirectories relative to the workspace root.
-- **`read_file(path: str)`**: Reads file contents with line and byte count limits to prevent context-window flooding.
-- **`grep_files(query: str, path: str = ".")`**: Regular expression search across repository files with bounded match output.
-- **`write_file(path: str, content: str)`**: Overwrites or creates files within the workspace.
+Models explicitly advertising no tool support skip the two tool scenarios (`n/a`),
+with no expected tools added. Unknown capability is attempted unless
+`--require-tool-use` was requested.
 
-#### Security Guards & Verification
-- **Path Traversal Protection**: Any path containing `..`, absolute paths outside the workspace, or symlink traversal attempts are blocked immediately.
-- **Read-Only Enforcements**: Modifying test fixtures, configuration files, or files outside the target code area raises an actionable tool error.
-- **Mandatory Mutation**: The model must invoke `write_file` at least once.
-- **Independent Test Rerun**: Once the model finishes (or turn budget exhausts), the runner executes the unit test suite in an isolated subprocess with a sanitized environment. If all tests pass with zero exit codes, the scenario is scored as a **Pass**; otherwise **Fail**.
-
----
-
-### `codegen` — Algorithmic Code Synthesis
-
-The `codegen` scenario evaluates raw instruction following, algorithm design, and syntax precision without access to external tools.
-
-#### Task & Code Extraction
-- **Specification**: The model is instructed to implement an optimal Fibonacci function (`fib(n: int) -> int`) handling base cases ($F(0) = 0, F(1) = 1$), edge cases (negative numbers raise `ValueError`), and efficient evaluation for large inputs ($n = 100$).
-- **Code Extraction Engine**: Prefers standard markdown code fences (````python ... ````). If omitted, validates whether the entire raw output constitutes compilable Python. Unfenced prose or conversational preamble causes immediate failure.
-
-#### Subprocess Verification Sandbox
-- **Sanitized Environment**: Clears ambient `PYTHONPATH` and isolates execution.
-- **Strict Timeout**: Execution is capped at 15.0 seconds. Non-terminating loops are terminated via process-group `SIGKILL`.
-- **Correctness Battery**: Evaluates base values, intermediate values, and large numbers against mathematical constants. Requires 100% test satisfaction and clean zero-code subprocess exit.
-
----
-
-### Scenario State & Isolation Guarantees
-
-- **Fresh Working Directory**: Temporary directories are uniquely generated for each repeat and destroyed upon completion.
-- **Subprocess Isolation**: Generated code never executes within the `llmsweep` process space.
-- **Context Clearing**: Message history is discarded between repeats and scenario transitions; models are never evaluated using contaminated context from previous tests.
+These subprocesses provide workflow confinement, not an OS security sandbox.
+Generated Python still executes with the current user's operating-system permissions.
 
 ---
 
@@ -345,7 +299,7 @@ The `codegen` scenario evaluates raw instruction following, algorithm design, an
 
 $$\text{TTFT (ms)} = (t_{\text{first\_output}} - t_{\text{dispatched}}) \times 1000$$
 
-- **Start Marker ($t_{\text{dispatched}}$)**: Captured the instant the HTTP request payload is sent across the socket.
+- **Start Marker ($t_{\text{dispatched}}$)**: Captured immediately before invoking the provider completion request; includes transport setup and queueing.
 - **Stop Marker ($t_{\text{first\_output}}$)**: Captured upon receiving the first `TextDelta`, `ReasoningDelta`, or `ToolCallDelta`.
 - **Excluded Overhead**: Role-only headers (`{"role": "assistant"}`) and initial empty usage envelopes do **not** trigger the stop marker.
 
@@ -417,15 +371,15 @@ When `--baseline <path_to_run.json>` is passed, `llmsweep` matches runs on `(pro
 
 - **Higher-is-Better (Throughput)**:
   $$\Delta_{\text{tok/s}} = \frac{\text{Baseline} - \text{Current}}{\text{Baseline}} \times 100$$
-- **Lower-is-Better (TTFT, Load Time)**:
+- **Lower-is-Better (TTFT)**:
   $$\Delta_{\text{latency}} = \frac{\text{Current} - \text{Baseline}}{\text{Baseline}} \times 100$$
 
 #### Threshold & CI Exit Code
 - **Variance Threshold**: Default 5.0%.
 - If current throughput drops by $> 5\%$, or TTFT increases by $> 5\%$:
   - Marked with visual warning indicators (`▼ REGRESSION (+X.X%)`).
-  - Command exits with code **`3`** (Regression Failure).
-- Invalidation warnings are emitted if token sources differ, repeat counts differ, or parallel execution contention occurred.
+  - With `--fail-on-regression`, the command exits with code **`3`** (Regression Failure).
+- Invalidation warnings are emitted if token sources differ, benchmark settings differ, or parallel execution contention occurred.
 
 ---
 
@@ -445,10 +399,11 @@ git clone https://github.com/jamesbrendamour/llm-bench.git
 cd llm-bench
 
 # Install package
-uv pip install .
+uv sync
+uv run llmsweep --help
 
 # For development (includes pytest, textual-dev, ruff, mypy)
-uv pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
 ### Using Standard `pip`
@@ -458,6 +413,14 @@ pip install .
 ```
 
 ---
+
+## Provider Matrix
+
+| Provider | Discovery | Chat | Lifecycle | Tokens | Cost |
+| --- | --- | --- | --- | --- | --- |
+| LM Studio | `/api/v1/models`, fallback `/api/v0/models` | `/v1/chat/completions`, SSE | v1 instance load/unload; v0 JIT | usage, otherwise flagged estimate | — (not billed) |
+
+Ollama, generic OpenAI, and OpenRouter are deferred. See [design and assumptions](docs/design.md).
 
 ## Quick Start & Common Recipes
 
@@ -489,7 +452,7 @@ Assert current performance against an established baseline in CI pipelines:
 ```bash
 llmsweep run --plain \
   --models "qwen2.5-coder-7b-instruct" \
-  --baseline "baselines/qwen_v1.json" \
+  --baseline "baselines/qwen_v1.json" --fail-on-regression \
   --json "artifacts/latest_run.json"
 ```
 *If throughput or TTFT degrades by $> 5\%$, `llmsweep` returns exit code `3`.*
@@ -498,60 +461,59 @@ llmsweep run --plain \
 Review results and full conversational transcripts without connecting to the server:
 
 ```bash
-llmsweep show 20260922_041012_lmstudio --transcripts
+llmsweep show /path/to/run-directory
+llmsweep show /path/to/run-directory --plain
 ```
 
 ---
 
 ## CLI Command & Flag Reference
 
-### Global Usage
+Use `llmsweep COMMAND [OPTIONS]`. Omitting the command selects `run`.
+Top-level `--list` and `--show PATH` are compatibility aliases. Use
+`llmsweep run --help` for argparse's full usage.
 
-```bash
-llmsweep [OPTIONS] COMMAND [ARGS]...
-```
+| Command | Purpose |
+| --- | --- |
+| `run` | Benchmark selected models; opens the picker in an interactive terminal. |
+| `list` | List eligible chat models, largest parameter count first. |
+| `show PATH` | Open a run directory or `run.json` offline; `--plain` prints tables. |
+| `export PATH --json FILE --csv FILE --markdown FILE` | Export one or more formats offline. |
+| `doctor` | Check discovery, authentication, API version, and store writability without chat. |
+| `providers` | Show the supported provider: `lmstudio`. |
 
-| Option | Description |
-| :--- | :--- |
-| `-c, --config <path>` | Explicit path to a TOML configuration file. |
-| `--verbose` | Enable debug logging to standard error. |
-| `--version` | Print application version and exit. |
-| `--help` | Show global help information. |
+| Flag | Default / meaning |
+| --- | --- |
+| `--models SPEC`, `--all` | IDs, indices/ranges, or unique substrings; mutually exclusive. Plain runs require one. |
+| `--provider NAME`, `--providers NAMES` | Only `lmstudio` is implemented in v1. |
+| `--base-url URL` | Server origin; defaults to `http://localhost:1234`. |
+| `--host HOST`, `--port PORT` | Alternative to `--base-url`; default `localhost`, `1234`. |
+| `--api-key KEY` | Optional credential; prefer environment variables to avoid shell history. |
+| `--require-tool-use` | Select models advertising tool support. |
+| `--exclude a,b` | Exclude matching model IDs/substrings. |
+| `--scenarios LIST` | `weather,agent-code,codegen`; preserves order and deduplicates. |
+| `--task TEXT` | Custom weather task, scored `n/a`; rejects explicitly selected other scenarios. |
+| `--repeat N` | Repeats per scenario; default `1`. |
+| `--max-turns N` | Override weather's 6 and agent-code's 10 turns; codegen stays single-turn. |
+| `--max-tokens N` | Completion limit; default `1024`. |
+| `--timeout SECONDS` | Per-request inactivity timeout; default `300`. |
+| `--load-timeout SECONDS` | Load/readiness ceiling; default and maximum `600`. |
+| `--no-warmup` | Skip the one 8-token warmup request per model. |
+| `--no-unload`, `--keep-loaded` | Retain instances loaded by the run. Pre-existing instances are always retained. |
+| `--parallel N` | Default `1`; values above 1 require preloaded models and mark timings contended. |
+| `--plain`, `--no-color` | Plain mode / monochrome TUI; `NO_COLOR` is honored. |
+| `--verbose` | Include tool events in stderr or the TUI log. |
+| `--transcript-dir DIR` | Additional transcript destination, grouped by run ID. |
+| `--sort-by KEY` | `order`, `tok_s`, `ttft`, `total`, `load`, `model`; `cost` is rejected in LM Studio v1. |
+| `--json PATH`, `--csv PATH`, `--markdown PATH` | Explicit export destinations. |
+| `--baseline PATH` | Compare with a saved run directory or JSON file. |
+| `--fail-on-regression` | Exit 3 for comparable regressions beyond thresholds; requires a baseline for runs. |
+| `--run-store DIR` | Override the platform data directory. |
+| `--config PATH` | Explicit TOML file instead of the project `llmsweep.toml`. |
+| `--list`, `--show PATH` | Top-level compatibility aliases. |
 
----
-
-### Subcommands
-
-- **`llmsweep run [OPTIONS]`**: Execute benchmark scenarios.
-- **`llmsweep list`**: List available chat models reported by LM Studio (excluding embeddings/rerankers).
-- **`llmsweep show <run-id|file> [OPTIONS]`**: Inspect past benchmark results and transcripts offline.
-  - `--transcripts`: Include full conversational turns, tool calls, and model outputs.
-  - `--sort-by <metric>`: Sort summary table by `tok_s`, `ttft`, `load_s`, or `model`.
-- **`llmsweep export <run-id> --format <json|csv|md>`**: Export a stored run to JSON, CSV, or Markdown without network access.
-- **`llmsweep doctor`**: Diagnose environment setup, LM Studio server reachability, API version (v1/v0), and store permissions without running benchmarks.
-- **`llmsweep providers`**: Display status of supported backend providers (`lmstudio`).
-
----
-
-### `llmsweep run` Flags
-
-| Flag | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `-m, --models <spec>` | String | *Picker* | Comma-separated model IDs, 1-based index ranges (`1-3,5`), or unique substrings. |
-| `-a, --all` | Flag | `False` | Select all available chat models discovered from the server. |
-| `-s, --scenarios <list>` | String | `all` | Comma-separated list: `weather`, `agent-code`, `codegen`. Defaults to all three. |
-| `-r, --repeat <n>` | Integer | `1` | Number of test repetitions per scenario per model. |
-| `--plain` | Flag | `False` | Force plain text ANSI-free output instead of the interactive TUI. |
-| `--baseline <path>` | Path | `None` | Path to prior run JSON file. Compares performance and flags regressions $> 5\%$. |
-| `--task <prompt>` | String | `None` | Custom prompt for `weather` scenario (disables automatic scoring). |
-| `--require-tool-use` | Flag | `False` | Restrict model selection to those explicitly advertising function-calling support. |
-| `--keep-loaded` | Flag | `False` | Prevent unloading of models after benchmark completion. Alias: `--no-unload`. |
-| `--parallel` | Flag | `False` | Execute benchmarks concurrently across models (requires all models preloaded). |
-| `--json <path>` | Path | `None` | Save run results to specified JSON file. |
-| `--csv <path>` | Path | `None` | Save scenario summary table to CSV. |
-| `--markdown <path>` | Path | `None` | Save formatted results report as Markdown. |
-| `--timeout <sec>` | Integer | `300` | Inactivity timeout in seconds for streaming API requests. |
-| `--load-deadline <sec>` | Integer | `600` | Maximum wait time in seconds for model loading and readiness verification. |
+Connection flags apply to `run`, `list`, and `doctor`; exports and baseline flags
+apply to `run`, `show`, and `export`. Unknown or inapplicable flags are usage errors.
 
 ---
 
@@ -578,59 +540,61 @@ Running `llmsweep run` in an interactive terminal opens the full Textual TUI:
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
-| :--- | :--- |
-| `Space` | Toggle model selection in Picker |
-| `Enter` | Confirm selection / Start benchmark run |
-| `Tab` / `Shift+Tab` | Navigate between screens, tables, and views |
-| `Ctrl+C` | Cancel active model (saves partial results and triggers clean unload) |
-| `Ctrl+Q` | Quit application |
-| `?` | Toggle Help modal |
+| --- | --- |
+| `Space` / `Enter` in picker table | Toggle model selection |
+| `Ctrl+R` | Start selected models |
+| `/`, `t`, `e` | Search; tools-only; narrow to explicitly known chat types |
+| `Tab` / `Shift+Tab` | Move widget focus |
+| `Ctrl+X`, `Esc` on Live | Cancel, clean up run-owned instances, and save partial results |
+| `Ctrl+C` | Show the quit/cancel reminder |
+| `Ctrl+Q` | Clean up and quit |
+| `F1` | Toggle Textual's built-in HelpPanel |
+| `s`, `Enter`, `d`, `e`, `r` on Results | Sort, transcript, baseline diff, export, rerun selected model |
+| `n`, `p`, `y` in Transcript | Next repeat, previous repeat, copy JSON |
+
+Textual's command palette remains enabled. `p` does not switch providers in this
+LM Studio-only release. Pipes, `CI`, and `TERM=dumb` select plain mode before App construction.
 
 ---
 
 ## Configuration & Precedence
 
-Configuration values are resolved using the following order of precedence:
-
-```mermaid
-flowchart TD
-    CLI["1. CLI Flags (--models, --repeat, etc.)"]
-    ENV["2. Environment Variables (LLMSWEEP_*)"]
-    Project["3. Project Config File (./llmsweep.toml or ./pyproject.toml)"]
-    User["4. User Config File (~/.config/llmsweep/config.toml)"]
-    Defaults["5. Internal Defaults"]
-
-    CLI --> ENV --> Project --> User --> Defaults
-```
-
-### Environment Variables
-
-| Variable | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `LLMSWEEP_HOST` | URL | `http://localhost:1234` | Base URL of the LM Studio server. |
-| `LLMSWEEP_API_KEY` | String | `None` | Optional API token for server authentication (redacted in logs). |
-| `LLMSWEEP_TIMEOUT` | Float | `300.0` | Default request inactivity timeout in seconds. |
-| `LLMSWEEP_LOAD_DEADLINE` | Float | `600.0` | Default timeout for model loading. |
-| `LLMSWEEP_DATA_DIR` | Path | Platform default | Directory for persistent storage and transcripts. |
-| `LLMSWEEP_PLAIN` | Boolean | `false` | Force plain text mode (`1` or `true`). |
-
-### Example Configuration (`llmsweep.toml`)
+Precedence is CLI > `LLMSWEEP_*` environment > project `./llmsweep.toml` >
+`platformdirs.user_config_path("llmsweep") / "llmsweep.toml"` > defaults.
+An explicit `--config PATH` replaces the project file. Keys are validated;
+unknown keys and literal `api_key` values are errors. Provider settings use
+`[providers.lmstudio]`. Deferred provider blocks are not activated in this release.
 
 ```toml
-[server]
-host = "http://localhost:1234"
-timeout = 300.0
-load_deadline = 600.0
-
-[benchmark]
 repeat = 3
-scenarios = ["weather", "agent-code", "codegen"]
+scenarios = "weather,agent-code,codegen"
 require_tool_use = false
 keep_loaded = false
 
-[regression]
-threshold_pct = 5.0
+[providers.lmstudio]
+base_url = "http://localhost:1234"
+timeout = 300.0
+load_timeout = 600.0
+api_key_env = "LMSTUDIO_API_KEY"
+
+[thresholds]
+tok_s_regression_pct = 5.0
+ttft_regression_pct = 5.0
 ```
+
+| Environment variable | Meaning |
+| --- | --- |
+| `LMSTUDIO_API_KEY` | Preferred provider credential; `LLMSWEEP_API_KEY` is the fallback. |
+| `LLMSWEEP_BASE_URL` | Server URL. |
+| `LLMSWEEP_HOST`, `LLMSWEEP_PORT` | Hostname and port, when no base URL is configured. |
+| `LLMSWEEP_TIMEOUT`, `LLMSWEEP_LOAD_TIMEOUT` | Request and readiness timeouts. |
+| `LLMSWEEP_RUN_STORE` | Persistent run directory. |
+| `LLMSWEEP_PLAIN` | Boolean (`true`, `false`, `1`, `0`, `yes`, `no`). |
+| `NO_COLOR` | Disable colors in both renderers. |
+
+Other root settings use the corresponding `LLMSWEEP_` uppercase name.
+Credentials are redacted in error messages, logs, transcripts, and exports.
+Redirects are disabled so credentials stay on the configured provider origin.
 
 ---
 
@@ -640,24 +604,24 @@ threshold_pct = 5.0
 
 | Exit Code | Meaning | Cause |
 | :---: | :--- | :--- |
-| **`0`** | **Success** | All benchmarks completed without errors or threshold regressions. |
+| **`0`** | **Success** | Execution completed; a deterministic scoring failure alone does not change the exit code. |
 | **`1`** | **Model Error** | One or more models encountered an unrecoverable execution or API error. |
 | **`2`** | **Setup / Config Error** | Invalid flags, unparseable model/scenario expressions, or missing config. |
-| **`3`** | **Regression Failure** | Benchmarks completed, but throughput or TTFT regressed $> 5\%$ vs baseline. |
+| **`3`** | **Regression Failure** | Comparable regression beyond the configured threshold under `--fail-on-regression`. |
 | **`4`** | **Auth Failure** | Non-retryable authentication or authorization error (HTTP 401/403). |
 
 ---
 
 ## Design Rationale & Resolved Assumptions
 
-1. **LM Studio v1 with v0 Fallback**: LM Studio v1 REST API (`/v1/models`, `/v1/chat/completions`) provides richer capability discovery, structured instance tracking, and explicit load timing. Discovery falls back to v0 if and only if the server returns HTTP 404 (`UnsupportedEndpointError`). In v0, models may load JIT; `load_s` is reported honestly as `null` with status `untracked/v0`.
+1. **LM Studio v1 with v0 Fallback**: LM Studio v1 REST API (`/api/v1/models`, `/v1/chat/completions`) provides richer capability discovery, structured instance tracking, and explicit load timing. Discovery falls back to v0 if and only if the server returns HTTP 404, 405, or 501. In v0, models may load JIT; `load_s` is reported honestly as `null` with a v0 JIT-loading note.
 2. **Client-Observed vs Server-Reported Throughput**: Server-side metrics often compute throughput using raw internal forward-pass durations, ignoring serialization, buffer queuing, and streaming overhead. Measuring from first to last output delta reflects real-world client performance.
 3. **Mean of Scenario Means**: Different scenarios produce widely varying token counts (e.g. `weather` generates 40 tokens per turn; `agent-code` generates hundreds across multi-file edits). Averaging scenario means prevents coding scenarios from dominating overall model rankings.
 4. **Token Counting Fallback**: Prefers API `completion_tokens` (including native reasoning tokens); falls back to $\lceil \text{bytes} / 4 \rceil$ when usage packets are omitted. The source is permanently recorded to ensure transparent comparisons.
 5. **Workflow Confinement vs OS Virtualization**: `agent-code` tools enforce directory traversal guards (`..`, absolute paths, symlink escapes) and restrict modifications to permitted code files. Subprocesses run with sanitized environments, timeouts, and process-group isolation (`killpg`).
 6. **Independent Test Verification**: In `agent-code`, the model performs file edits. Once complete, an independent test runner evaluates the test suite in an isolated subprocess outside the LLM's control.
 7. **Pure Event-Driven UI Separation**: The `Runner` executes benchmark logic independently and emits normalized events over an asynchronous channel. Neither renderer calculates scores or metrics.
-8. **Stream Buffering (75 ms)**: High-speed local models emitting $> 1,000$ deltas/second can saturate terminal event loops. The TUI queues deltas and flushes every 75 ms to maintain 60 FPS UI rendering without dropping data.
+8. **Stream Buffering (75 ms)**: High-speed local models emitting $> 1,000$ deltas/second can saturate terminal event loops. The TUI queues deltas and flushes every 75 ms to bound widget updates to roughly 13 per second without dropping data.
 9. **Serial Execution Default**: Running multiple local LLM benchmarks simultaneously causes GPU memory contention and invalidates latency metrics. Parallel execution is permitted via `--parallel` only when all target models are preloaded.
 
 ---
@@ -668,16 +632,16 @@ All test suites in `llmsweep` are fully self-contained and run completely offlin
 
 ```bash
 # Run unit and contract tests
-pytest
+uv run --extra dev pytest
 
 # Run linter checks
-ruff check
+uv run --extra dev ruff check
 
 # Run strict type checking
-mypy --strict
+uv run --extra dev mypy --strict
 
 # Auto-format codebase
-ruff format
+uv run --extra dev ruff format
 ```
 
 ---

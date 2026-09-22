@@ -113,14 +113,14 @@ Using `regression_pct`:
 
 - **Higher-is-Better (Throughput)**:
   $$\Delta_{\text{tok/s}} = \frac{\text{Baseline} - \text{Current}}{\text{Baseline}} \times 100$$
-- **Lower-is-Better (TTFT, Load Time)**:
+- **Lower-is-Better (TTFT)**:
   $$\Delta_{\text{latency}} = \frac{\text{Current} - \text{Baseline}}{\text{Baseline}} \times 100$$
 
 ### Threshold & CI Exit Code
 - **Variance Threshold**: 5.0% by default.
 - If current throughput drops by $> 5\%$, or TTFT increases by $> 5\%$:
   - Marked with visual warning indicators (`▼ REGRESSION (+X.X%)`).
-  - Command exits with code **`3`** (Regression Failure), enabling automated CI pipelines to detect performance degradation.
+  - With `--fail-on-regression`, the command exits with code **`3`** (Regression Failure), enabling automated CI pipelines to detect performance degradation.
 
 <Warning>
 **Comparison Invalidation**: Automatic performance comparison verdicts are suppressed (with diagnostic warnings) if:

@@ -1,3 +1,5 @@
+"""Pure timing, token accounting, and distribution calculations."""
+
 from __future__ import annotations
 
 import math
@@ -19,6 +21,8 @@ TokenSource = Literal["server", "usage", "estimated"]
 
 @dataclass(frozen=True)
 class Stats:
+    """Summary statistics over valid observations; missing values remain absent."""
+
     count: int
     mean: float | None
     median: float | None
@@ -39,6 +43,8 @@ def summarize(values: list[float | None]) -> Stats:
 
 @dataclass(frozen=True)
 class TurnMetrics:
+    """Output-only generation measurements for one completion request."""
+
     ttft_ms: float | None
     generation_s: float
     output_tokens: int
@@ -53,6 +59,8 @@ class TurnMetrics:
 
 @dataclass
 class TurnRecorder:
+    """Accumulate stream events against an injected monotonic timestamp."""
+
     started: float
     first: float | None = None
     last: float | None = None

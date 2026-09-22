@@ -1,3 +1,5 @@
+"""Fixed weather tools, timezone lookup, and deterministic answer scoring."""
+
 from __future__ import annotations
 
 import math
@@ -10,6 +12,8 @@ from .base import Scenario, tool
 
 
 class Weather(Scenario):
+    """Exercise three named tools and validate the final Fahrenheit answer."""
+
     name = "weather"
     max_turns = 6
     expected_tools = ("get_weather", "convert_temperature", "get_current_time")

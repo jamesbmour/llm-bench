@@ -1,3 +1,5 @@
+"""Serializable benchmark records, rollups, and comparable baseline verdicts."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -9,6 +11,8 @@ from .models import ModelInfo, ModelRef
 
 @dataclass
 class SampleResult:
+    """Raw transcript and measurements for one scenario repeat."""
+
     scenario: str
     repeat: int
     status: str = "running"
@@ -49,6 +53,8 @@ class SampleResult:
 
 @dataclass
 class ModelResult:
+    """Model lifecycle measurements and scenario repeat outcomes."""
+
     model: ModelInfo
     status: str = "pending"
     load_s: float | None = None
@@ -116,6 +122,8 @@ class ModelResult:
 
 @dataclass
 class RunResult:
+    """Schema-versioned run document shared by both presentation modes."""
+
     run_id: str
     started_at: str
     settings: dict[str, Any]

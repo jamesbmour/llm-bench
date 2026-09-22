@@ -1,3 +1,5 @@
+"""Renderer-independent benchmark execution, cleanup, and persistence."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +22,8 @@ from .streams import ReasoningDelta, TextDelta, ToolCallAccumulator, ToolCallDel
 
 @dataclass(frozen=True)
 class RunOptions:
+    """Benchmark settings that affect execution and baseline comparability."""
+
     scenarios: tuple[str, ...] = ("weather", "agent-code", "codegen")
     repeat: int = 1
     max_tokens: int = 1024
@@ -38,6 +42,8 @@ class RunOptions:
 
 @dataclass(frozen=True)
 class RunEvent:
+    """Presentation event emitted by the runner without UI dependencies."""
+
     kind: str
     ref: ModelRef
     scenario: str = ""
@@ -49,6 +55,8 @@ class RunEvent:
 
 
 class RunSession:
+    """Own execution, cancellation, instance cleanup, and saved run state."""
+
     def __init__(
         self,
         provider: Provider,
@@ -140,7 +148,11 @@ class RunSession:
                 result.status = "running"
                 self.emit(RunEvent("model_start", ref))
                 acquired = asyncio.create_task(
-                    self.provider.acquire(result.model, self.options.load_timeout)
+                    self.provider.acquire(
+                        result.model,
+                        self.options.load_timeout,
+                        allow_load=self.options.parallel == 1,
+                    )
                 )
                 lease = await asyncio.shield(acquired)
                 result.load_s, result.load_status = lease.load_s, lease.note
@@ -183,7 +195,13 @@ class RunSession:
         except (LlmsweepError, OSError) as exc:
             result.status = "error"
             result.error = self.provider.redact(str(exc))
-            result.error_code = 4 if isinstance(exc, AuthenticationError) else 1
+            result.error_code = (
+                4
+                if isinstance(exc, AuthenticationError)
+                else 2
+                if isinstance(exc, ConfigError)
+                else 1
+            )
         finally:
             if lease and not self.options.keep_loaded:
                 cleanup = asyncio.create_task(self.provider.release(lease))
@@ -229,7 +247,13 @@ class RunSession:
                             text.append(event.text)
                             self.emit(
                                 RunEvent(
-                                    "text", result.model.ref, name, event.text, turn, at=observed_at
+                                    "text",
+                                    result.model.ref,
+                                    name,
+                                    event.text,
+                                    turn,
+                                    at=observed_at,
+                                    tok_s=recorder.finish().tok_s,
                                 )
                             )
                         elif isinstance(event, ReasoningDelta):

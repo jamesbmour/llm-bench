@@ -1,3 +1,5 @@
+"""Provider-qualified model identity and LM Studio metadata normalization."""
+
 from __future__ import annotations
 
 import re
@@ -13,6 +15,8 @@ SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([bBmM])\b")
 
 @dataclass(frozen=True, order=True)
 class ModelRef:
+    """Stable identity qualified by its registered provider."""
+
     provider: str
     id: str
 
@@ -35,6 +39,8 @@ def size_billions(value: str) -> float | None:
 
 @dataclass(frozen=True)
 class ModelInfo:
+    """Normalized model metadata with unknown capabilities kept distinct from false."""
+
     ref: ModelRef
     type: str = "unknown"
     params_b: float | None = None

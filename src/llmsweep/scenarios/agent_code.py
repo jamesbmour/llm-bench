@@ -1,3 +1,5 @@
+"""Constrained file tools and independent regression tests for a summation bug."""
+
 from __future__ import annotations
 
 import re
@@ -22,6 +24,8 @@ print('all tests passed')
 
 
 class AgentCode(Scenario):
+    """Repair a single writable Python module and rerun canonical assertions."""
+
     name = "agent-code"
     max_turns = 10
     expected_tools = ("write_file",)

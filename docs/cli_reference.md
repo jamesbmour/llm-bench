@@ -3,187 +3,97 @@ title: "CLI Reference & Configuration"
 description: "Command documentation, flags, environment variables, configuration precedence, and exit codes"
 ---
 
-# CLI Reference & Configuration
+## CLI Command & Flag Reference
 
-`llmsweep` provides a comprehensive command-line interface for running benchmarks, inspecting models, reviewing stored results, and diagnosing connectivity.
+Use `llmsweep COMMAND [OPTIONS]`. Omitting the command selects `run`.
+Top-level `--list` and `--show PATH` are compatibility aliases. Use
+`llmsweep run --help` for argparse's full usage.
 
----
+| Command | Purpose |
+| --- | --- |
+| `run` | Benchmark selected models; opens the picker in an interactive terminal. |
+| `list` | List eligible chat models, largest parameter count first. |
+| `show PATH` | Open a run directory or `run.json` offline; `--plain` prints tables. |
+| `export PATH --json FILE --csv FILE --markdown FILE` | Export one or more formats offline. |
+| `doctor` | Check discovery, authentication, API version, and store writability without chat. |
+| `providers` | Show the supported provider: `lmstudio`. |
 
-## 1. Global Usage
+| Flag | Default / meaning |
+| --- | --- |
+| `--models SPEC`, `--all` | IDs, indices/ranges, or unique substrings; mutually exclusive. Plain runs require one. |
+| `--provider NAME`, `--providers NAMES` | Only `lmstudio` is implemented in v1. |
+| `--base-url URL` | Server origin; defaults to `http://localhost:1234`. |
+| `--host HOST`, `--port PORT` | Alternative to `--base-url`; default `localhost`, `1234`. |
+| `--api-key KEY` | Optional credential; prefer environment variables to avoid shell history. |
+| `--require-tool-use` | Select models advertising tool support. |
+| `--exclude a,b` | Exclude matching model IDs/substrings. |
+| `--scenarios LIST` | `weather,agent-code,codegen`; preserves order and deduplicates. |
+| `--task TEXT` | Custom weather task, scored `n/a`; rejects explicitly selected other scenarios. |
+| `--repeat N` | Repeats per scenario; default `1`. |
+| `--max-turns N` | Override weather's 6 and agent-code's 10 turns; codegen stays single-turn. |
+| `--max-tokens N` | Completion limit; default `1024`. |
+| `--timeout SECONDS` | Per-request inactivity timeout; default `300`. |
+| `--load-timeout SECONDS` | Load/readiness ceiling; default and maximum `600`. |
+| `--no-warmup` | Skip the one 8-token warmup request per model. |
+| `--no-unload`, `--keep-loaded` | Retain instances loaded by the run. Pre-existing instances are always retained. |
+| `--parallel N` | Default `1`; values above 1 require preloaded models and mark timings contended. |
+| `--plain`, `--no-color` | Plain mode / monochrome TUI; `NO_COLOR` is honored. |
+| `--verbose` | Include tool events in stderr or the TUI log. |
+| `--transcript-dir DIR` | Additional transcript destination, grouped by run ID. |
+| `--sort-by KEY` | `order`, `tok_s`, `ttft`, `total`, `load`, `model`; `cost` is rejected in LM Studio v1. |
+| `--json PATH`, `--csv PATH`, `--markdown PATH` | Explicit export destinations. |
+| `--baseline PATH` | Compare with a saved run directory or JSON file. |
+| `--fail-on-regression` | Exit 3 for comparable regressions beyond thresholds; requires a baseline for runs. |
+| `--run-store DIR` | Override the platform data directory. |
+| `--config PATH` | Explicit TOML file instead of the project `llmsweep.toml`. |
+| `--list`, `--show PATH` | Top-level compatibility aliases. |
 
-```bash
-llmsweep [OPTIONS] COMMAND [ARGS]...
-```
-
-### Global Options
-
-| Option | Description |
-| :--- | :--- |
-| `-c, --config <path>` | Explicit path to a TOML configuration file. |
-| `--verbose` | Enable debug logging to standard error. |
-| `--version` | Print application version and exit. |
-| `--help` | Show global help information. |
-
----
-
-## 2. Subcommands
-
-### `llmsweep run`
-Execute benchmark scenarios across selected or all models.
-
-```bash
-llmsweep run [OPTIONS]
-```
-
-#### Options
-
-| Flag | Type | Default | Description |
-| :--- | :--- | :---: | :--- |
-| `-m, --models <spec>` | String | `None` | Comma-separated list of model IDs, index ranges (`1-3,5`), or unique substrings. In interactive mode without this flag, opens the Model Picker. |
-| `-a, --all` | Flag | `False` | Run benchmarks against all available chat models discovered from the server. |
-| `-s, --scenarios <list>`| String | `all` | Comma-separated list of scenarios: `weather`, `agent-code`, `codegen`. Defaults to all three. |
-| `-r, --repeat <n>` | Integer | `1` | Number of test repetitions per scenario per model. |
-| `--plain` | Flag | `False` | Force plain, ANSI-free tabular output instead of the interactive Textual TUI. |
-| `--task <prompt>` | String | `None` | Custom prompt for the `weather` tool scenario. Disables automated scoring and rejects combination with other scenarios. |
-| `--require-tool-use` | Flag | `False` | Restricts model selection to those explicitly advertising function-calling support in server metadata. |
-| `--keep-loaded` | Flag | `False` | Prevent unloading of models after benchmark execution. Alias: `--no-unload`. |
-| `--parallel` | Flag | `False` | Execute benchmarks concurrently across selected models. Requires all models to be preloaded. |
-| `--baseline <path>` | Path | `None` | Path to a previous run JSON file. Compares performance and flags regressions $> 5\%$. |
-| `--json <path>` | Path | `None` | Export full results document to the specified JSON path. |
-| `--csv <path>` | Path | `None` | Export aggregated scenario summaries to CSV format. |
-| `--markdown <path>` | Path | `None` | Export human-readable results table as Markdown. |
-| `--timeout <sec>` | Integer | `300` | Inactivity timeout in seconds for streaming API requests. |
-| `--load-deadline <sec>` | Integer | `600` | Maximum wait time in seconds for model loading and readiness verification. |
-
-#### Model Selection Syntax (`--models`)
-Selection resolution evaluates terms in the following precedence:
-1. **Exact Model ID**: Matches the fully qualified model key (e.g. `lmstudio:qwen2.5-coder-7b-instruct` or `qwen2.5-coder-7b-instruct`).
-2. **Index Numbers & Ranges**: 1-based indexing matching `llmsweep list` order. Examples:
-   - `1`: First model in list.
-   - `1,3,5`: Discrete model selection.
-   - `1-3,6-8`: Continuous ranges combined with individual indices.
-3. **Unique Substring**: Case-insensitive substring match (e.g. `coder-7b`). If multiple models match, an ambiguous selection error is raised.
+Connection flags apply to `run`, `list`, and `doctor`; exports and baseline flags
+apply to `run`, `show`, and `export`. Unknown or inapplicable flags are usage errors.
 
 ---
 
-### `llmsweep list`
-List all models available on the LM Studio server.
+## Configuration & Precedence
 
-```bash
-llmsweep list [OPTIONS]
-```
-
-- Filters out non-chat models (`embedding`, `embeddings`, `reranker`).
-- Displays index numbers, parameter sizes (billions), quantization formats, tool-use support flags, and current residency status (`loaded` or `unloaded`).
-
----
-
-### `llmsweep show`
-Inspect past benchmark runs and detailed transcripts offline.
-
-```bash
-llmsweep show <run-id|file-path> [OPTIONS]
-```
-
-- **`<run-id|file-path>`**: Unique run ID from local store or direct path to a saved `.json` run file.
-- **`--transcripts`**: Include full conversational turns, tool calls, and model outputs.
-- **`--sort-by <metric>`**: Sort summary table by `tok_s`, `ttft`, `load_s`, or `model`.
-
----
-
-### `llmsweep export`
-Export a completed run from the local store to external formats without network access.
-
-```bash
-llmsweep export <run-id> --format <json|csv|markdown> [OPTIONS]
-```
-
-- **`--format`**: Target format (`json`, `csv`, `markdown`).
-- **`-o, --output <path>`**: Target destination file (prints to stdout if omitted).
-
----
-
-### `llmsweep doctor`
-Verify environment configuration, connectivity, and local storage health without running benchmarks.
-
-```bash
-llmsweep doctor
-```
-
-Diagnostics performed:
-1. **Configuration**: Verifies TOML syntax and validates configuration keys.
-2. **Connectivity**: Tests TCP connectivity and HTTP reachability to LM Studio.
-3. **API Version**: Detects whether LM Studio v1 or v0 API is responding.
-4. **Authentication**: Verifies credentials if configured.
-5. **Storage Accessibility**: Verifies read/write permissions for the local run database.
-
----
-
-### `llmsweep providers`
-List supported backend providers.
-
-```bash
-llmsweep providers
-```
-
-In version 1.0, `lmstudio` is the active supported provider. Requesting unconfigured or deferred providers (e.g. `ollama`, `openrouter`) exits with code `2`.
-
----
-
-## 3. Configuration & Precedence
-
-`llmsweep` resolves configuration values using the following priority order (highest to lowest):
-
-```mermaid
-flowchart TD
-    CLI["1. CLI Flags (--models, --repeat, etc.)"]
-    ENV["2. Environment Variables (LLMSWEEP_*)"]
-    Project["3. Project Config File (./llmsweep.toml or ./pyproject.toml)"]
-    User["4. User Config File (~/.config/llmsweep/config.toml)"]
-    Defaults["5. Internal Defaults"]
-
-    CLI --> ENV --> Project --> User --> Defaults
-```
-
-### Environment Variables
-
-| Variable | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `LLMSWEEP_HOST` | URL | `http://localhost:1234` | Base URL of the LM Studio server. |
-| `LLMSWEEP_API_KEY` | String | `None` | Optional API token for server authentication (redacted in logs and exports). |
-| `LLMSWEEP_TIMEOUT` | Float | `300.0` | Default request inactivity timeout in seconds. |
-| `LLMSWEEP_LOAD_DEADLINE` | Float | `600.0` | Default timeout for model loading. |
-| `LLMSWEEP_DATA_DIR` | Path | Platform default | Directory for persistent storage and transcripts. |
-| `LLMSWEEP_PLAIN` | Boolean | `false` | Force plain text output across all commands when set to `1` or `true`. |
-
-### TOML Configuration Example (`llmsweep.toml`)
+Precedence is CLI > `LLMSWEEP_*` environment > project `./llmsweep.toml` >
+`platformdirs.user_config_path("llmsweep") / "llmsweep.toml"` > defaults.
+An explicit `--config PATH` replaces the project file. Keys are validated;
+unknown keys and literal `api_key` values are errors. Provider settings use
+`[providers.lmstudio]`. Deferred provider blocks are not activated in this release.
 
 ```toml
-[server]
-host = "http://localhost:1234"
-timeout = 300.0
-load_deadline = 600.0
-
-[benchmark]
 repeat = 3
-scenarios = ["weather", "agent-code", "codegen"]
+scenarios = "weather,agent-code,codegen"
 require_tool_use = false
 keep_loaded = false
 
-[regression]
-threshold_pct = 5.0
+[providers.lmstudio]
+base_url = "http://localhost:1234"
+timeout = 300.0
+load_timeout = 600.0
+api_key_env = "LMSTUDIO_API_KEY"
+
+[thresholds]
+tok_s_regression_pct = 5.0
+ttft_regression_pct = 5.0
 ```
+
+| Environment variable | Meaning |
+| --- | --- |
+| `LMSTUDIO_API_KEY` | Preferred provider credential; `LLMSWEEP_API_KEY` is the fallback. |
+| `LLMSWEEP_BASE_URL` | Server URL. |
+| `LLMSWEEP_HOST`, `LLMSWEEP_PORT` | Hostname and port, when no base URL is configured. |
+| `LLMSWEEP_TIMEOUT`, `LLMSWEEP_LOAD_TIMEOUT` | Request and readiness timeouts. |
+| `LLMSWEEP_RUN_STORE` | Persistent run directory. |
+| `LLMSWEEP_PLAIN` | Boolean (`true`, `false`, `1`, `0`, `yes`, `no`). |
+| `NO_COLOR` | Disable colors in both renderers. |
+
+Other root settings use the corresponding `LLMSWEEP_` uppercase name.
+Credentials are redacted in error messages, logs, transcripts, and exports.
+Redirects are disabled so credentials stay on the configured provider origin.
 
 ---
 
-## 4. Exit Codes
+## Exit codes
 
-`llmsweep` uses distinct exit codes to support automated CI/CD pipelines and shell scripting:
-
-| Code | Label | Cause |
-| :---: | :--- | :--- |
-| **`0`** | **Success** | All benchmarks completed; pass/fail criteria satisfied; no regressions beyond threshold. |
-| **`1`** | **Model Error** | One or more models encountered an unrecoverable runtime exception, socket termination, or HTTP error. |
-| **`2`** | **Configuration Error** | Invalid flags, unparseable model/scenario expressions, unimplemented provider selection, or invalid TOML configuration. |
-| **`3`** | **Regression Failure** | All benchmarks finished without errors, but TTFT or throughput regressed $> 5\%$ against the provided baseline. |
-| **`4`** | **Authentication Error** | Non-retryable HTTP 401 or 403 response received from the provider. |
+0: execution completed (scoring can fail); 1: model error/cancellation; 2: usage, configuration, or initial connection error; 3: regression with `--fail-on-regression`; 4: authentication failure.

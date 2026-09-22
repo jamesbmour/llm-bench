@@ -149,3 +149,28 @@ def test_plain_error_output_and_transcripts_never_expose_key(
     for path in tmp_path.rglob("*.json"):
         assert "secret-value" not in path.read_text()
         json.loads(path.read_text())
+
+
+async def test_parallel_does_not_load_models_that_disappear(tmp_path: Path) -> None:
+    fake = FakeLMStudio(preloaded=True)
+    provider = LMStudio(transport=fake.transport, sleep=no_wait)
+    try:
+        models = [m for m in await provider.list_models() if m.chat]
+        fake.loaded.clear()
+        session = RunSession(provider, RunStore(tmp_path), RunOptions(parallel=2, no_warmup=True))
+        run = await session.run_all(models)
+        assert run.exit_code() == 2
+        assert not any(r.url.path.endswith("/load") for r in fake.requests)
+        assert not fake.chat_requests
+    finally:
+        await provider.close()
+
+
+def test_redaction_handles_json_escaping_and_ansi() -> None:
+    from llmsweep.security import Redactor
+
+    secret = 'sensitive"value'
+    redact = Redactor(secret)
+    assert secret not in redact(secret)
+    assert json.loads(redact(json.dumps({"error": secret})))["error"] == "[REDACTED]"
+    assert redact("\x1b[31merror\x1b[0m") == "error"

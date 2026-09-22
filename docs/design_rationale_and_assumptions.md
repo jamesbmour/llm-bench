@@ -12,13 +12,13 @@ This document explains the architectural decisions, design trade-offs, and resol
 ## 1. Provider Integration & Discovery
 
 ### LM Studio v1 with v0 Fallback
-- **Rationale**: LM Studio introduced a modernized v1 REST API (`/v1/models`, `/v1/chat/completions`) with richer capability discovery, structured instance tracking, and explicit load timing. However, older deployments or alternative configurations may only expose the v0 endpoints.
-- **Decision**: Discovery queries `/v1/models` first. If and only if the server returns HTTP 404 (`UnsupportedEndpointError`), the provider falls back to the v0 endpoint. Fallback is **not** triggered on connection errors, authentication failures, or 5xx server errors.
-- **Reporting Honesty**: In v0, models may be loaded just-in-time (JIT) by the server during request dispatch. Because v0 lacks instance tracking and explicit load readiness APIs, `load_s` is recorded as `null` with status `untracked/v0` rather than publishing guessed metrics.
+- **Rationale**: LM Studio introduced a modernized v1 REST API (`/api/v1/models`, `/v1/chat/completions`) with richer capability discovery, structured instance tracking, and explicit load timing. However, older deployments or alternative configurations may only expose the v0 endpoints.
+- **Decision**: Discovery queries `/api/v1/models` first. If and only if the server returns HTTP 404, 405, or 501, the provider falls back to the v0 endpoint. Fallback is **not** triggered on connection errors, authentication failures, or other server errors.
+- **Reporting Honesty**: In v0, models may be loaded just-in-time (JIT) by the server during request dispatch. Because v0 lacks instance tracking and explicit load readiness APIs, `load_s` is recorded as `null` with a v0 JIT-loading note rather than publishing guessed metrics.
 
 ### Lifecycle Management & Idempotent Cleanup
 - **Preserving User State**: Users frequently have a primary model loaded in LM Studio when initiating tests. `llmsweep` captures a snapshot of currently loaded instances at startup.
-- **Run-Owned Instances**: When `llmsweep` loads a model, it records the returned runtime instance ID. At session completion or upon `Ctrl+C` interruption, the cleaner attempts to unload **only** instances instantiated during that specific run.
+- **Run-Owned Instances**: When `llmsweep` loads a model, it records the returned runtime instance ID. At session completion or upon TUI `Ctrl+X` cancellation, the cleaner attempts to unload **only** instances instantiated during that specific run.
 - **Preloaded Models**: Models present prior to run initiation are retained in memory; their `load_s` is reported as `null` with status `preloaded`.
 
 ---
@@ -50,7 +50,7 @@ This document explains the architectural decisions, design trade-offs, and resol
 
 ### Independent Test Verification
 - **Rationale**: Asking an LLM to evaluate its own code changes or parse test output introduces bias and error.
-- **Decision**: In `agent-code`, the model performs file writes. Once complete, an independent test runner runs the test suite in a clean subprocess. The scenario score depends solely on the exit status of this independent test run.
+- **Decision**: In `agent-code`, the model performs file writes. Once complete, an independent test runner runs the test suite in a clean subprocess. Pass requires a write call, successful canonical checker exit, and its completion marker.
 
 ---
 
@@ -62,7 +62,7 @@ This document explains the architectural decisions, design trade-offs, and resol
 
 ### Stream Buffering
 - **Rationale**: Local inference engines can emit hundreds or thousands of deltas per second on high-end hardware (e.g. Apple Silicon Unified Memory or discrete GPUs). Direct UI widget updates on every delta saturate the event loop.
-- **Decision**: Output streaming chunks in the TUI are queued and flushed at 75 ms intervals. This maintains smooth, 60 FPS terminal rendering without dropping data or delaying stream reception.
+- **Decision**: Output streaming chunks in the TUI are queued and flushed at 75 ms intervals. This maintains at most about 13 stream refreshes per second without dropping data or delaying stream reception.
 
 ### Serial vs Parallel Execution
 - **Rationale**: Running multiple local LLM benchmarks simultaneously causes GPU memory contention, context thrashing, and inaccurate latency measurements.

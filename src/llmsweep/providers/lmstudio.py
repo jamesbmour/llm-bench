@@ -1,3 +1,5 @@
+"""Asynchronous LM Studio discovery, lifecycle, and SSE chat transport."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +16,7 @@ import httpx
 
 from llmsweep.errors import (
     AuthenticationError,
+    ConfigError,
     ConnectionFailedError,
     DnsError,
     HttpStatusError,
@@ -34,6 +37,8 @@ from .base import Lease
 
 
 class LMStudio:
+    """LM Studio v1 lifecycle API with v0 discovery fallback and SSE chat."""
+
     def __init__(
         self,
         base_url: str = "http://localhost:1234",
@@ -43,6 +48,7 @@ class LMStudio:
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
+        jitter: Callable[[float, float], float] = random.uniform,
     ) -> None:
         self.redact = Redactor(api_key)
         self.client = httpx.AsyncClient(
@@ -56,6 +62,7 @@ class LMStudio:
         self.version: str | None = None
         self.sleep = sleep
         self.clock = clock
+        self.jitter = jitter
 
     async def close(self) -> None:
         await self.client.aclose()
@@ -82,14 +89,12 @@ class LMStudio:
         message = self.redact(str(exc))
         if isinstance(exc, httpx.TimeoutException):
             return RequestTimeoutError(f"request inactivity timeout: {message}")
-        if "CERTIFICATE_VERIFY_FAILED" in message or "SSL" in message:
-            return TlsError(message)
         if isinstance(exc, httpx.ConnectError):
             return ConnectionFailedError(message)
         return StreamError(f"connection interrupted: {message}")
 
     async def _backoff(self, attempt: int) -> None:
-        await self.sleep(0.5 * 2**attempt + random.uniform(0, 0.25))
+        await self.sleep(0.5 * 2**attempt + self.jitter(0, 0.25))
 
     async def _request(
         self,
@@ -135,12 +140,16 @@ class LMStudio:
             raise MalformedResponseError(f"{key} must be an array of models")
         return sort_models([normalize_model(row, self.version or "v1") for row in rows])
 
-    async def acquire(self, model: ModelInfo, load_deadline: float) -> Lease:
+    async def acquire(
+        self, model: ModelInfo, load_deadline: float, *, allow_load: bool = True
+    ) -> Lease:
         current = next((m for m in await self.list_models() if m.ref == model.ref), None)
         if current is None:
             raise ModelLoadError(f"model disappeared: {model.ref.key}")
         if current.loaded:
             return Lease(current, next(iter(current.instances), None))
+        if not allow_load:
+            raise ConfigError(f"parallel model is no longer loaded: {model.ref.key}")
         if self.version == "v0":
             return Lease(current, note="v0: JIT loading; load timing and unload unavailable")
         started = self.clock()
@@ -203,7 +212,9 @@ class LMStudio:
                         retry=False,
                     )
                 except ProviderError:
-                    if any(lease.instance_id in m.instances for m in await self.list_models()):
+                    if lease.load_s is None or any(
+                        lease.instance_id in m.instances for m in await self.list_models()
+                    ):
                         raise
                 for _ in range(10):
                     if not any(lease.instance_id in m.instances for m in await self.list_models()):

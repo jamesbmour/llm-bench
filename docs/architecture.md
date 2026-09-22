@@ -86,14 +86,14 @@ Role-only headers and empty usage frames do **not** trigger output delta timesta
 `llmsweep` connects to local inference engines via an asynchronous `httpx` adapter adhering to a strict provider lifecycle interface.
 
 ### Discovery & Version Negotiation
-1. Discovery begins against the **LM Studio v1 API** (`/v1/models`).
-2. If an `UnsupportedEndpointError` (HTTP 404) is received, the client gracefully falls back to the legacy **v0 API**. Network timeouts, transport errors, or authentication failures do not trigger fallback.
+1. Discovery begins against the **LM Studio v1 API** (`/api/v1/models`).
+2. If an HTTP 404, 405, or 501 is received, the client gracefully falls back to the legacy **v0 API**. Network timeouts, transport errors, or authentication failures do not trigger fallback.
 3. Chat completions stream from `/v1/chat/completions` with streaming usage collection enabled.
 
 ### Lifecycle Management: Load, Warmup, & Unload
 - **Cold / Preloaded Detection**: The provider snapshots all loaded model instances before initiating tests.
 - **Instance Loading**: When an unloaded model is required, the provider issues a load request, extracts the unique runtime instance ID, and polls readiness every 1.0 second until the model is operational or the load deadline expires.
-- **Warmup Turn**: A single-token warm-up query is issued prior to scenario execution to ensure weights, KV-caches, and compute buffers are fully resident in VRAM.
+- **Warmup Turn**: One `max_tokens: 8` warmup query is issued prior to scenario execution to ensure weights, KV-caches, and compute buffers are fully resident in VRAM.
 - **Idempotent Cleanup**: When execution finishes (or when aborted via `Ctrl+C`), `llmsweep` unloads *only* instances spawned during the current session, verifying their deallocation. Preloaded user models remain untouched.
 
 ---

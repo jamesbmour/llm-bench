@@ -1,3 +1,5 @@
+"""Fibonacci code extraction and deterministic checker execution."""
+
 from __future__ import annotations
 
 import re
@@ -21,6 +23,8 @@ def extract_code(answer: str) -> str:
 
 
 class Codegen(Scenario):
+    """Score an extracted Fibonacci implementation using an isolated subprocess."""
+
     name = "codegen"
     prompt = (
         "Return one fenced python code block defining fib(n), returning the nth Fibonacci "

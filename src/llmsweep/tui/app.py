@@ -1,3 +1,5 @@
+"""App-owned asynchronous workers and buffered benchmark event rendering."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +36,8 @@ from llmsweep.tui.screens.main import (
 
 
 class SweepApp(App[int]):
+    """Own workers for the full lifetime of a benchmark and its cleanup."""
+
     CSS_PATH = "theme.tcss"
     TITLE = "llmsweep"
     SUB_TITLE = "LM Studio benchmarks"
@@ -136,7 +140,7 @@ class SweepApp(App[int]):
         self.pending_events.append(event)
 
     def flush_events(self) -> None:
-        if not self.live:
+        if not self.live or not self.live.cards:
             return
         events = list(self.pending_events)
         self.pending_events.clear()
@@ -274,7 +278,13 @@ class SweepApp(App[int]):
             self.session.run.models[self.session.run.models.index(old)] = replacement
             self.session.run.status = "running"
             self.session.cancelled = False
-            self.live = LiveScreen(self.session.run.models)
+            self.flush_events()
+            retained = (
+                {key: card for key, card in self.live.cards.items() if key != ref}
+                if self.live
+                else {}
+            )
+            self.live = LiveScreen(self.session.run.models, retained)
             self.switch_screen(self.live)
             self.model_workers[ref] = self.model_worker(ref)
         finally:
