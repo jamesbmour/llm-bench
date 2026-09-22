@@ -116,7 +116,9 @@ Benchmark results and full conversation transcripts are written to disk with ato
 
 - **Storage Format**: Schema-versioned JSON documents written under the platform-specific data directory (`~/.local/share/llmsweep` on Linux, `~/Library/Application Support/llmsweep` on macOS).
 - **Atomic Writes**: Runs and transcripts are written to temporary sibling files and committed using atomic file replacement (`os.replace`) to ensure crash resilience.
+- **Transcripts**: Full turn-by-turn prompts, tool schemas, tool execution outputs, model thought processes, and raw completions are preserved for offline post-mortem debugging.
 - **Offline Inspection**: The `llmsweep show` and `llmsweep export` commands read directly from the local store without requiring an active LM Studio connection. See [Data Formats & Exports](/data_formats) for the complete schema reference of run documents, transcripts, and export formats.
+
 ---
 
 ## 5. UI & Presentation Layer
@@ -149,5 +151,6 @@ sequenceDiagram
 - Activated via `--plain`, or automatically enabled when non-interactive environments are detected (pipes, redirected stdout, `TERM=dumb`, or CI systems).
 - Emits clean, deterministic, ANSI-free tabular output.
 
+---
 
-For implementation-level details on verification strategies, store internals, and resolved ambiguities, see [Implementation Design & Assumptions](design_rationale_and_assumptions.md).
+For implementation-level details on verification strategies, store internals, event handling, and resolved ambiguities from a code perspective, see [Design Rationale & Assumptions](/design_rationale_and_assumptions).

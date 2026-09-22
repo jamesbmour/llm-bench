@@ -1,9 +1,9 @@
 ---
-title: "Implementation design and assumptions"
+title: "Implementation Design & Assumptions"
 description: "Verified LM Studio v1 scope, measurement rules, lifecycle ownership, and release assumptions."
 ---
 
-# Implementation design and assumptions
+# Implementation Design & Assumptions
 
 This release implements LM Studio only, following the revised scope in
 `Implementation_plan.md`. The original script is unchanged and is used only as
@@ -138,7 +138,8 @@ reasoning, usage-only chunks, invalid arguments, unknown tools, errors, retries,
 interrupted streams, readiness cleanup, and preloaded ownership. Tests disable sockets.
 Pilot tests assert state during cancellation, worker errors, concurrent reruns,
 stream buffering, resizing, offline dialogs, and plain/TUI serialization parity.
-- The README screenshot is generated using `App.export_screenshot()` from labeled fixtures.
+The README screenshot is generated using `App.export_screenshot()` from labeled fixtures.
 
+---
 
-For the user-facing architectural overview, see [System Architecture](architecture.md). For design rationale and resolved assumptions from a product perspective, see [Design Rationale & Assumptions](design_rationale_and_assumptions.md). For the complete schema reference of persisted run documents, transcripts, and export formats, see [Data Formats & Exports](data_formats.md).
+For the user-facing architectural overview, see [System Architecture](/architecture). For design rationale and resolved assumptions from a product perspective, see [Design Rationale & Assumptions](/design_rationale_and_assumptions). For the complete schema reference of persisted run documents, transcripts, and export formats, see [Data Formats & Exports](/data_formats).
