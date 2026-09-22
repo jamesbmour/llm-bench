@@ -505,6 +505,7 @@ Top-level `--list` and `--show PATH` are compatibility aliases. Use
 | `--no-unload`, `--keep-loaded` | Retain instances loaded by the run. Pre-existing instances are always retained. |
 | `--parallel N` | Default `1`; values above 1 require preloaded models and mark timings contended. |
 | `--plain`, `--no-color` | Plain mode / monochrome TUI; `NO_COLOR` is honored. |
+| `--theme NAME` | Textual theme for the TUI (`run`, `show`); default `textual-dark`, `Ctrl+T` cycles at runtime. |
 | `--verbose` | Include tool events in stderr or the TUI log. |
 | `--transcript-dir DIR` | Additional transcript destination, grouped by run ID. |
 | `--sort-by KEY` | `order`, `tok_s`, `ttft`, `total`, `load`, `model`; `cost` is rejected in LM Studio v1. |
@@ -535,24 +536,30 @@ When specifying `--models <spec>`, `llmsweep` resolves terms using a determinist
 Running `llmsweep run` in an interactive terminal opens the full Textual TUI:
 
 ### TUI Screens
-- **Model Picker**: Interactive list with search filtering, parameter sizes, and selection toggling.
-- **Live Streaming Runner**: Real-time progress bars, response streaming (buffered at 75 ms intervals to prevent UI stutter), and per-turn metrics.
-- **Results Dashboard**: Summary tables with TTFT, tok/s, pass/fail status, and color-coded regression arrows.
+- **Model Picker**: Interactive list with search filtering, bulk select/clear, parameter sizes, and selection toggling.
+- **Live Streaming Runner**: Real-time progress bars, response streaming (buffered at 75 ms intervals to prevent UI stutter), per-card status/metrics strips, and card zoom.
+- **Results Dashboard**: Summary tables with TTFT, tok/s, pass/fail status, a marked sort column, text and status filters, and color-coded regression arrows.
 - **Transcript Viewer**: Drill down into raw turn messages, tool calls, and model completions.
+- **Help Overlay** (`F1` / `?`): every shortcut active on the current screen plus the metric, status, and exit-code legend.
+- **Status Bar**: endpoint or run ID, model counts, run state, sort, active filters, theme, and elapsed clock on every screen.
 
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
 | --- | --- |
 | `Space` / `Enter` in picker table | Toggle model selection |
+| `a`, `x` in picker | Select every visible model; clear the selection |
 | `Ctrl+R` | Start selected models |
-| `/`, `t`, `e` | Search; tools-only; narrow to explicitly known chat types |
+| `/`, `t`, `e` | Search; tools-only; narrow to explicitly known chat types (`Esc` returns focus to the table) |
 | `Tab` / `Shift+Tab` | Move widget focus |
+| `[`, `]`, `z` on Live | Previous card, next card, zoom the focused card to the full screen |
 | `Ctrl+X`, `Esc` on Live | Cancel, clean up run-owned instances, and save partial results |
 | `Ctrl+C` | Show the quit/cancel reminder |
 | `Ctrl+Q` | Clean up and quit |
-| `F1` | Toggle Textual's built-in HelpPanel |
-| `s`, `Enter`, `d`, `e`, `r` on Results | Sort, transcript, baseline diff, export, rerun selected model |
+| `Ctrl+T` | Cycle the color theme (`--theme NAME`, `LLMSWEEP_THEME`, or `theme` in `llmsweep.toml` set the start theme) |
+| `F1`, `?` | Toggle the help overlay: active shortcuts plus the metric and status legend |
+| `s`, `/`, `f` on Results | Cycle sort (the sorted column is marked ▲/▼); filter by text; cycle all/passed/failed/errors |
+| `Enter`, `d`, `e`, `r` on Results | Transcript, baseline diff, export, rerun selected model |
 | `n`, `p`, `y` in Transcript | Next repeat, previous repeat, copy JSON |
 
 Textual's command palette remains enabled. `p` does not switch providers in this
